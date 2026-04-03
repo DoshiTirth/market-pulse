@@ -1,7 +1,7 @@
 // ============================================
-// StockSage AI — Market Data Service (Finnhub)
-// REST API + WebSocket real-time streaming
-// Free tier: 60 calls/min
+// StockSage AI — Market Data Service
+// Finnhub: real-time quotes + WebSocket + news
+// Yahoo Finance: historical candle data (free)
 // ============================================
 
 import axios from 'axios';
@@ -9,27 +9,31 @@ import axios from 'axios';
 const FH_BASE = 'https://finnhub.io/api/v1';
 const FH_KEY = process.env.REACT_APP_FINNHUB_KEY;
 
-// Simple in-memory cache
+// Yahoo Finance proxy (CORS-friendly)
+const YAHOO_BASE = 'https://query1.finance.yahoo.com/v8/finance/chart';
+
+// Cache
 const cache = new Map();
-const CACHE_TTL = 2 * 60 * 1000; // 2 minutes
+const CACHE_TTL = 2 * 60 * 1000;
 
 function getCached(key) {
   const entry = cache.get(key);
   if (entry && Date.now() - entry.timestamp < CACHE_TTL) return entry.data;
   return null;
 }
-
 function setCache(key, data) {
   cache.set(key, { data, timestamp: Date.now() });
 }
-
-// Rate-limit-safe delay — 60 calls/min means 1 per second to be safe
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// ========================================
+// FINNHUB — Quotes, News, WebSocket
+// ========================================
+
 /**
- * Get current quote for a symbol
+ * Get current quote for a symbol (Finnhub)
  */
 export async function getQuote(symbol) {
   const cacheKey = `quote:${symbol}`;
@@ -41,10 +45,7 @@ export async function getQuote(symbol) {
       params: { symbol, token: FH_KEY }
     });
 
-    if (!data || data.c === 0) {
-      console.warn(`[API] No quote data for ${symbol}`);
-      return null;
-    }
+    if (!data || data.c === 0) return null;
 
     const result = {
       symbol,
@@ -61,65 +62,13 @@ export async function getQuote(symbol) {
     setCache(cacheKey, result);
     return result;
   } catch (err) {
-    console.error(`[API] Quote failed for ${symbol}:`, err.message);
+    console.error(`[Finnhub] Quote failed for ${symbol}:`, err.message);
     return null;
   }
 }
 
 /**
- * Get daily candle data (historical)
- * Uses from/to unix timestamps
- */
-export async function getDaily(symbol, days = 100) {
-  const cacheKey = `daily:${symbol}:${days}`;
-  const cached = getCached(cacheKey);
-  if (cached) return cached;
-
-  try {
-    const now = Math.floor(Date.now() / 1000);
-    const from = now - (days * 24 * 60 * 60);
-
-    console.log(`[API] Fetching daily candles for ${symbol} (${days} days)...`);
-
-    const { data } = await axios.get(`${FH_BASE}/stock/candle`, {
-      params: {
-        symbol,
-        resolution: 'D',
-        from,
-        to: now,
-        token: FH_KEY
-      }
-    });
-
-    console.log(`[API] Candle response for ${symbol}: status=${data?.s}, points=${data?.c?.length || 0}`);
-
-    if (!data || data.s === 'no_data' || !data.c) {
-      console.warn(`[API] No candle data for ${symbol}`);
-      return [];
-    }
-
-    const result = [];
-    for (let i = 0; i < data.c.length; i++) {
-      result.push({
-        date: new Date(data.t[i] * 1000).toISOString().split('T')[0],
-        open: data.o[i],
-        high: data.h[i],
-        low: data.l[i],
-        close: data.c[i],
-        volume: data.v[i]
-      });
-    }
-
-    setCache(cacheKey, result);
-    return result;
-  } catch (err) {
-    console.error(`[API] Daily candles failed for ${symbol}:`, err.response?.status, err.message);
-    return [];
-  }
-}
-
-/**
- * Get company profile (fundamentals)
+ * Get company profile (Finnhub)
  */
 export async function getOverview(symbol) {
   const cacheKey = `overview:${symbol}`;
@@ -143,18 +92,14 @@ export async function getOverview(symbol) {
       symbol: profile.ticker,
       name: profile.name,
       sector: profile.finnhubIndustry,
-      industry: profile.finnhubIndustry,
       marketCap: profile.marketCapitalization * 1e6,
       logo: profile.logo,
-      weburl: profile.weburl,
-      peRatio: m.peNormalizedAnnual || m.peBasicExclExtraTTM || null,
+      peRatio: m.peNormalizedAnnual || null,
       eps: m.epsNormalizedAnnual || null,
       dividendYield: m.dividendYieldIndicatedAnnual || null,
       beta: m.beta || null,
       fiftyTwoWeekHigh: m['52WeekHigh'],
       fiftyTwoWeekLow: m['52WeekLow'],
-      movingAvg50: m['50DayMovingAverage'] || null,
-      movingAvg200: m['200DayMovingAverage'] || null,
       profitMargin: m.netProfitMarginTTM ? m.netProfitMarginTTM / 100 : null,
       revenueGrowth: m.revenueGrowthQuarterlyYoy ? m.revenueGrowthQuarterlyYoy / 100 : null
     };
@@ -162,39 +107,13 @@ export async function getOverview(symbol) {
     setCache(cacheKey, result);
     return result;
   } catch (err) {
-    console.error(`[API] Overview failed for ${symbol}:`, err.message);
+    console.error(`[Finnhub] Overview failed for ${symbol}:`, err.message);
     return null;
   }
 }
 
 /**
- * Batch quotes for multiple symbols — with proper rate limiting
- */
-export async function getBatchQuotes(symbols) {
-  const results = [];
-  for (const symbol of symbols) {
-    const quote = await getQuote(symbol);
-    if (quote) results.push(quote);
-    await delay(1100); // 1.1 seconds between calls to stay safe
-  }
-  return results;
-}
-
-/**
- * Batch daily candles — with proper rate limiting
- */
-export async function getBatchDaily(symbols, days = 100) {
-  const results = {};
-  for (const symbol of symbols) {
-    const daily = await getDaily(symbol, days);
-    if (daily.length > 0) results[symbol] = daily;
-    await delay(1100);
-  }
-  return results;
-}
-
-/**
- * Get company news
+ * Get company news (Finnhub)
  */
 export async function getNews(symbol, daysBack = 7) {
   const cacheKey = `news:${symbol}`;
@@ -215,19 +134,148 @@ export async function getNews(symbol, daysBack = 7) {
       summary: article.summary,
       source: article.source,
       url: article.url,
+      image: article.image,
       datetime: new Date(article.datetime * 1000).toISOString()
     }));
 
     setCache(cacheKey, result);
     return result;
   } catch (err) {
-    console.error(`[API] News failed for ${symbol}:`, err.message);
+    console.error(`[Finnhub] News failed for ${symbol}:`, err.message);
     return [];
   }
 }
 
 /**
- * Search for stock symbols
+ * Batch quotes (Finnhub)
+ */
+export async function getBatchQuotes(symbols) {
+  const results = [];
+  for (const symbol of symbols) {
+    const quote = await getQuote(symbol);
+    if (quote) results.push(quote);
+    await delay(1100);
+  }
+  return results;
+}
+
+// ========================================
+// YAHOO FINANCE — Historical Candle Data
+// ========================================
+
+/**
+ * Get daily candle data from Yahoo Finance (free, no API key needed)
+ */
+export async function getDaily(symbol, days = 100) {
+  const cacheKey = `daily:${symbol}:${days}`;
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
+
+  try {
+    console.log(`[Yahoo] Fetching daily candles for ${symbol}...`);
+
+    // Yahoo Finance chart API
+    const period1 = Math.floor((Date.now() - days * 24 * 60 * 60 * 1000) / 1000);
+    const period2 = Math.floor(Date.now() / 1000);
+
+    const { data } = await axios.get(`${YAHOO_BASE}/${symbol}`, {
+      params: {
+        period1,
+        period2,
+        interval: '1d',
+        includePrePost: false
+      }
+    });
+
+    const chart = data?.chart?.result?.[0];
+    if (!chart || !chart.timestamp) {
+      console.warn(`[Yahoo] No data for ${symbol}`);
+      return [];
+    }
+
+    const timestamps = chart.timestamp;
+    const quote = chart.indicators.quote[0];
+
+    const result = [];
+    for (let i = 0; i < timestamps.length; i++) {
+      // Skip days with null data (holidays etc)
+      if (quote.close[i] == null) continue;
+      result.push({
+        date: new Date(timestamps[i] * 1000).toISOString().split('T')[0],
+        open: parseFloat((quote.open[i] || 0).toFixed(2)),
+        high: parseFloat((quote.high[i] || 0).toFixed(2)),
+        low: parseFloat((quote.low[i] || 0).toFixed(2)),
+        close: parseFloat((quote.close[i] || 0).toFixed(2)),
+        volume: quote.volume[i] || 0
+      });
+    }
+
+    console.log(`[Yahoo] Got ${result.length} candles for ${symbol}`);
+    setCache(cacheKey, result);
+    return result;
+  } catch (err) {
+    // If Yahoo direct fails, try via a CORS proxy
+    console.warn(`[Yahoo] Direct failed for ${symbol}, trying proxy...`);
+    return getDailyViaProxy(symbol, days);
+  }
+}
+
+/**
+ * Fallback: Yahoo via CORS proxy
+ */
+async function getDailyViaProxy(symbol, days) {
+  try {
+    const period1 = Math.floor((Date.now() - days * 24 * 60 * 60 * 1000) / 1000);
+    const period2 = Math.floor(Date.now() / 1000);
+
+    const url = `${YAHOO_BASE}/${symbol}?period1=${period1}&period2=${period2}&interval=1d`;
+    const { data } = await axios.get(`https://corsproxy.io/?${encodeURIComponent(url)}`);
+
+    const chart = data?.chart?.result?.[0];
+    if (!chart || !chart.timestamp) return [];
+
+    const timestamps = chart.timestamp;
+    const quote = chart.indicators.quote[0];
+
+    const result = [];
+    for (let i = 0; i < timestamps.length; i++) {
+      if (quote.close[i] == null) continue;
+      result.push({
+        date: new Date(timestamps[i] * 1000).toISOString().split('T')[0],
+        open: parseFloat((quote.open[i] || 0).toFixed(2)),
+        high: parseFloat((quote.high[i] || 0).toFixed(2)),
+        low: parseFloat((quote.low[i] || 0).toFixed(2)),
+        close: parseFloat((quote.close[i] || 0).toFixed(2)),
+        volume: quote.volume[i] || 0
+      });
+    }
+
+    console.log(`[Yahoo Proxy] Got ${result.length} candles for ${symbol}`);
+
+    const cacheKey = `daily:${symbol}:${days}`;
+    setCache(cacheKey, result);
+    return result;
+  } catch (err) {
+    console.error(`[Yahoo Proxy] Also failed for ${symbol}:`, err.message);
+    return [];
+  }
+}
+
+/**
+ * Batch daily candles
+ */
+export async function getBatchDaily(symbols, days = 100) {
+  const results = {};
+  for (const symbol of symbols) {
+    const daily = await getDaily(symbol, days);
+    if (daily.length > 0) results[symbol] = daily;
+    await delay(500); // Yahoo is more lenient on rate limits
+  }
+  return results;
+}
+
+/**
+ * Search for stock symbols (Finnhub)
  */
 export async function searchSymbol(query) {
   try {
@@ -236,14 +284,15 @@ export async function searchSymbol(query) {
     });
     return (data.result || []).filter(r => r.type === 'Common Stock').slice(0, 8);
   } catch (err) {
-    console.error('[API] Symbol search failed:', err.message);
+    console.error('[Finnhub] Search failed:', err.message);
     return [];
   }
 }
 
-/**
- * WebSocket connection for real-time Finnhub data
- */
+// ========================================
+// WEBSOCKET — Real-time Finnhub Streaming
+// ========================================
+
 export class RealtimeStream {
   constructor(onTrade) {
     this.ws = null;
@@ -283,9 +332,7 @@ export class RealtimeStream {
               });
             });
           }
-        } catch (err) {
-          // ignore
-        }
+        } catch (err) { /* ignore */ }
       };
 
       this.ws.onclose = () => {
