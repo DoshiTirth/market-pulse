@@ -14,6 +14,7 @@ import { RefreshCw, ExternalLink, Clock, TrendingUp, TrendingDown, Minus } from 
 import { useAgent } from './hooks/useAgent';
 import { getQuote, getDaily, getNews, RealtimeStream } from './services/stockAPI';
 import { askClaude, checkBackendHealth } from './services/aiChat';
+import InteractiveChart from './components/InteractiveChart';
 
 ChartJS.register(
   CategoryScale, LinearScale, PointElement, LineElement,
@@ -422,24 +423,14 @@ export default function App() {
             <div className="grid-2-1">
               <div className="card animate-in" style={{ animationDelay: '0.3s' }}>
                 <div className="card-header">
-                  <span className="card-title">
-                    Price action — {selectedStock}
-                    {quotes[selectedStock]?.price && <span style={{ marginLeft: 8, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>${quotes[selectedStock].price.toFixed(2)}</span>}
-                    {quotes[selectedStock]?.changePct != null && (
-                      <span style={{ marginLeft: 6, fontSize: 11, color: quotes[selectedStock].changePct >= 0 ? 'var(--green)' : 'var(--red)' }}>
-                        {quotes[selectedStock].changePct >= 0 ? '▲' : '▼'}{Math.abs(quotes[selectedStock].changePct).toFixed(2)}%
-                      </span>
-                    )}
-                  </span>
+                  <span className="card-title">{selectedStock}</span>
                   <span className="badge badge-live">LIVE</span>
                 </div>
-                <div style={{ position: 'relative', height: 260 }}>
-                  {chartData.length > 0 ? <Line data={priceChartConfig} options={priceChartOptions} /> : (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', fontSize: 13 }}>
-                      {loadingMsg ? `Loading ${selectedStock}...` : 'No data — try refreshing'}
-                    </div>
-                  )}
-                </div>
+                <InteractiveChart
+                  stockData={chartData}
+                  symbol={selectedStock}
+                  quote={quotes[selectedStock]}
+                />
               </div>
 
               <div className="card animate-in" style={{ animationDelay: '0.35s' }}>
