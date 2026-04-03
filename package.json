@@ -1,0 +1,57 @@
+{
+  "name": "stocksage-ai",
+  "version": "1.0.0",
+  "description": "AI-powered stock market intelligence agent — web and desktop",
+  "main": "public/electron.js",
+  "homepage": ".",
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-scripts": "5.0.1",
+    "chart.js": "^4.4.1",
+    "react-chartjs-2": "^5.2.0",
+    "recharts": "^2.10.3",
+    "axios": "^1.6.5",
+    "lucide-react": "^0.303.0"
+  },
+  "devDependencies": {
+    "electron": "^28.1.0",
+    "electron-builder": "^24.9.1",
+    "concurrently": "^8.2.2",
+    "wait-on": "^7.2.0"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "electron-dev": "concurrently \"npm start\" \"wait-on http://localhost:3000 && electron .\"",
+    "electron-build": "npm run build && electron-builder --win",
+    "predeploy": "npm run build",
+    "deploy": "gh-pages -d build"
+  },
+  "build": {
+    "appId": "com.stocksage.ai",
+    "productName": "StockSage AI",
+    "win": {
+      "target": "nsis",
+      "icon": "public/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "files": [
+      "build/**/*",
+      "public/electron.js"
+    ],
+    "directories": {
+      "buildResources": "public",
+      "output": "dist"
+    }
+  },
+  "browserslist": {
+    "production": [">0.2%", "not dead", "not op_mini all"],
+    "development": ["last 1 chrome version", "last 1 firefox version", "last 1 safari version"]
+  }
+}
