@@ -13,6 +13,7 @@ import {
 import { RefreshCw, ExternalLink, Clock, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { useAgent } from './hooks/useAgent';
 import { getQuote, getDaily, getNews, RealtimeStream } from './services/stockAPI';
+import { askClaude, checkBackendHealth } from './services/aiChat';
 
 ChartJS.register(
   CategoryScale, LinearScale, PointElement, LineElement,
@@ -59,6 +60,8 @@ export default function App() {
   const [chatInput, setChatInput] = useState('');
   const [chatResponse, setChatResponse] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
+  const [chatHistory, setChatHistory] = useState([]);
+  const [backendOnline, setBackendOnline] = useState(false);
   const [activeFilter, setActiveFilter] = useState('All');
   const chatRef = useRef(null);
 
@@ -249,12 +252,37 @@ export default function App() {
   };
 
   // Chat
+  // ---- Check backend health on mount ----
+  useEffect(() => {
+    checkBackendHealth().then(status => setBackendOnline(status.online));
+    const interval = setInterval(() => {
+      checkBackendHealth().then(status => setBackendOnline(status.online));
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // ---- Claude-powered chat ----
   async function handleChat() {
     if (!chatInput.trim()) return;
-    setChatLoading(true);
-    const response = await askAgent(chatInput, stockData);
-    setChatResponse(response);
+    const question = chatInput.trim();
     setChatInput('');
+    setChatLoading(true);
+
+    // Add user message to history
+    setChatHistory(prev => [...prev, { role: 'user', text: question }]);
+
+    try {
+      const response = await askClaude(question, {
+        quotes,
+        signals,
+        analyses
+      });
+
+      // Add AI response to history
+      setChatHistory(prev => [...prev, { role: 'ai', text: response }]);
+    } catch (err) {
+      setChatHistory(prev => [...prev, { role: 'ai', text: 'Something went wrong. Make sure the backend server is running.' }]);
+    }
     setChatLoading(false);
   }
 
@@ -544,17 +572,51 @@ export default function App() {
 
               <div className="card animate-in" style={{ animationDelay: '0.65s' }}>
                 <div className="card-header">
-                  <span className="card-title">Ask AI anything</span>
-                  <span className="badge badge-ai">AI</span>
+                  <span className="card-title">AI analyst — powered by Claude</span>
+                  <span className="badge" style={{
+                    background: backendOnline ? 'var(--green-dim)' : 'var(--red-dim)',
+                    color: backendOnline ? 'var(--green)' : 'var(--red)'
+                  }}>{backendOnline ? 'ONLINE' : 'OFFLINE'}</span>
                 </div>
+
+                {/* Chat history */}
+                {chatHistory.length > 0 && (
+                  <div style={{ maxHeight: 300, overflowY: 'auto', marginBottom: 12 }}>
+                    {chatHistory.map((msg, i) => (
+                      <div key={i} style={{
+                        padding: '10px 14px', marginBottom: 6, borderRadius: 'var(--radius-md)',
+                        background: msg.role === 'user' ? 'var(--bg-surface2)' : 'transparent',
+                        borderLeft: msg.role === 'ai' ? '2px solid var(--accent)' : 'none',
+                        fontSize: 13, lineHeight: 1.7
+                      }}>
+                        <div style={{ fontSize: 10, color: 'var(--text-faint)', marginBottom: 4, fontFamily: 'var(--font-mono)' }}>
+                          {msg.role === 'user' ? 'YOU' : 'CLAUDE AI'}
+                        </div>
+                        <div dangerouslySetInnerHTML={{ __html: msg.text }} />
+                      </div>
+                    ))}
+                    {chatLoading && (
+                      <div style={{ padding: '10px 14px', borderLeft: '2px solid var(--accent)', fontSize: 13 }}>
+                        <div style={{ fontSize: 10, color: 'var(--text-faint)', marginBottom: 4, fontFamily: 'var(--font-mono)' }}>CLAUDE AI</div>
+                        <span style={{ color: 'var(--accent)' }}>Analyzing market data...</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {!backendOnline && chatHistory.length === 0 && (
+                  <div style={{ padding: '12px', background: 'var(--bg-surface2)', borderRadius: 'var(--radius-md)', marginBottom: 12, fontSize: 12, color: 'var(--text-muted)' }}>
+                    Start the backend server in a separate terminal: <code style={{ background: 'var(--bg-primary)', padding: '2px 6px', borderRadius: 4 }}>node server.js</code>
+                  </div>
+                )}
+
                 <div className="chat-input-row">
                   <input ref={chatRef} className="chat-input" value={chatInput}
                     onChange={e => setChatInput(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && handleChat()}
-                    placeholder="Should I buy NVDA? Analyze AAPL. What's risky?" />
-                  <button className="chat-send" onClick={handleChat}>{chatLoading ? '...' : '↑'}</button>
+                    placeholder="Should I buy NVDA? What's the riskiest stock? Analyze TSLA..." />
+                  <button className="chat-send" onClick={handleChat} disabled={chatLoading}>{chatLoading ? '...' : '↑'}</button>
                 </div>
-                {chatResponse && <div className="chat-response" dangerouslySetInnerHTML={{ __html: chatResponse }} />}
               </div>
             </div>
           </>
