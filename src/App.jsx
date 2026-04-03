@@ -1,46 +1,25 @@
 // ============================================
-// StockSage AI — Main Application
-// Connected to Finnhub with proper rate limiting
+// Market Pulse — AI Stock Analysis Dashboard
+// Industrial-grade with real data pipeline
 // ============================================
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Line, Doughnut, Bar } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
   CategoryScale, LinearScale, PointElement, LineElement,
   BarElement, ArcElement, Filler, Tooltip, Legend
 } from 'chart.js';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, ExternalLink, Clock, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { useAgent } from './hooks/useAgent';
-import { getQuote, getDaily, RealtimeStream } from './services/stockAPI';
+import { getQuote, getDaily, getNews, RealtimeStream } from './services/stockAPI';
 
 ChartJS.register(
   CategoryScale, LinearScale, PointElement, LineElement,
   BarElement, ArcElement, Filler, Tooltip, Legend
 );
 
-// ---- Fallback mock data (used when API fails) ----
-function generateMockDaily(basePrice, days = 60) {
-  const data = [];
-  let price = basePrice;
-  const now = new Date();
-  for (let i = days; i >= 0; i--) {
-    const date = new Date(now);
-    date.setDate(date.getDate() - i);
-    const change = (Math.random() - 0.48) * basePrice * 0.025;
-    price += change;
-    data.push({
-      date: date.toISOString().split('T')[0],
-      open: price - change * 0.3,
-      high: price + Math.random() * basePrice * 0.01,
-      low: price - Math.random() * basePrice * 0.01,
-      close: price,
-      volume: Math.floor(Math.random() * 50000000 + 10000000)
-    });
-  }
-  return data;
-}
-
+// ---- Config ----
 const WATCHLIST_CONFIG = [
   { ticker: 'AAPL', name: 'Apple Inc.', color: '#22d3a7' },
   { ticker: 'NVDA', name: 'NVIDIA Corp.', color: '#3b82f6' },
@@ -51,13 +30,12 @@ const WATCHLIST_CONFIG = [
   { ticker: 'TSLA', name: 'Tesla Inc.', color: '#6366f1' },
 ];
 
-const MOCK_PRICES = { AAPL: 213, NVDA: 924, MSFT: 442, AMZN: 198, GOOGL: 178, META: 512, TSLA: 248 };
-
-const SECTORS = [
-  { name: 'Technology', val: 3.2 }, { name: 'Healthcare', val: 1.8 },
-  { name: 'Financials', val: -0.4 }, { name: 'Energy', val: -1.1 },
-  { name: 'Industrials', val: 2.1 }, { name: 'Consumer', val: 0.7 },
-  { name: 'Utilities', val: 0.3 },
+// ETFs that track major indices — real data instead of fake index numbers
+const INDEX_ETFS = [
+  { ticker: 'SPY', label: 'S&P 500', sublabel: 'SPY ETF' },
+  { ticker: 'QQQ', label: 'NASDAQ', sublabel: 'QQQ ETF' },
+  { ticker: 'DIA', label: 'DOW JONES', sublabel: 'DIA ETF' },
+  { ticker: 'VIX', label: 'VIX', sublabel: 'Volatility', isMock: true },
 ];
 
 const PORTFOLIO = [
@@ -74,91 +52,83 @@ export default function App() {
   const [selectedStock, setSelectedStock] = useState('AAPL');
   const [stockData, setStockData] = useState({});
   const [quotes, setQuotes] = useState({});
+  const [indexQuotes, setIndexQuotes] = useState({});
+  const [newsData, setNewsData] = useState([]);
   const [dataSource, setDataSource] = useState('loading');
-  const [loadingMsg, setLoadingMsg] = useState('Connecting to Finnhub...');
+  const [loadingMsg, setLoadingMsg] = useState('Connecting...');
   const [chatInput, setChatInput] = useState('');
   const [chatResponse, setChatResponse] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
+  const [activeFilter, setActiveFilter] = useState('All');
   const chatRef = useRef(null);
 
   const { analyses, insight, analyzeMultiple, askAgent, getSignals } = useAgent();
 
-  // ---- STEP 1: Fetch quotes (fast, one per second) ----
+  // ---- Fetch index ETF quotes ----
+  const fetchIndexes = useCallback(async () => {
+    const iq = {};
+    for (const idx of INDEX_ETFS) {
+      if (idx.isMock) continue;
+      try {
+        const quote = await getQuote(idx.ticker);
+        if (quote) iq[idx.ticker] = quote;
+      } catch (e) { /* skip */ }
+      await new Promise(r => setTimeout(r, 1100));
+    }
+    setIndexQuotes(iq);
+  }, []);
+
+  // ---- Fetch stock quotes ----
   const fetchQuotes = useCallback(async () => {
-    setLoadingMsg('Fetching stock quotes...');
+    setLoadingMsg('Fetching quotes...');
     const quoteMap = {};
     let anySuccess = false;
 
     for (let i = 0; i < WATCHLIST_CONFIG.length; i++) {
       const stock = WATCHLIST_CONFIG[i];
-      setLoadingMsg(`Fetching quote: ${stock.ticker} (${i + 1}/${WATCHLIST_CONFIG.length})...`);
+      setLoadingMsg(`Quote: ${stock.ticker} (${i + 1}/${WATCHLIST_CONFIG.length})`);
       try {
         const quote = await getQuote(stock.ticker);
         if (quote && quote.price > 0) {
           quoteMap[stock.ticker] = quote;
           anySuccess = true;
         }
-      } catch (err) {
-        console.warn(`Quote failed for ${stock.ticker}`);
-      }
+      } catch (err) { /* skip */ }
       await new Promise(r => setTimeout(r, 1100));
     }
 
     if (anySuccess) {
       setQuotes(quoteMap);
       setDataSource('live');
-    } else {
-      // Fallback
-      const mockQuotes = {};
-      Object.entries(MOCK_PRICES).forEach(([symbol, price]) => {
-        mockQuotes[symbol] = {
-          symbol, price, open: price * 0.99, high: price * 1.01,
-          low: price * 0.98, change: price * 0.01, changePct: 1.0, prevClose: price * 0.99
-        };
-      });
-      setQuotes(mockQuotes);
-      setDataSource('mock');
     }
-
     return anySuccess;
   }, []);
 
-  // ---- STEP 2: Fetch candles (slower, needs spacing) ----
+  // ---- Fetch candle data (Yahoo Finance) ----
   const fetchCandles = useCallback(async () => {
-    const dailyMap = {};
-
     for (let i = 0; i < WATCHLIST_CONFIG.length; i++) {
       const stock = WATCHLIST_CONFIG[i];
-      setLoadingMsg(`Loading chart: ${stock.ticker} (${i + 1}/${WATCHLIST_CONFIG.length})...`);
+      setLoadingMsg(`Chart: ${stock.ticker} (${i + 1}/${WATCHLIST_CONFIG.length})`);
       try {
         const daily = await getDaily(stock.ticker, 100);
         if (daily && daily.length > 0) {
-          dailyMap[stock.ticker] = daily;
-          // Update state progressively so charts appear as they load
           setStockData(prev => ({ ...prev, [stock.ticker]: daily }));
         }
-      } catch (err) {
-        console.warn(`Candles failed for ${stock.ticker}`);
-      }
-      await new Promise(r => setTimeout(r, 1200));
+      } catch (err) { /* skip */ }
+      await new Promise(r => setTimeout(r, 600));
     }
-
-    // If no candle data at all, use mock
-    if (Object.keys(dailyMap).length === 0) {
-      console.warn('[StockSage] No candle data — using mock');
-      const mockDaily = {};
-      Object.entries(MOCK_PRICES).forEach(([symbol, price]) => {
-        mockDaily[symbol] = generateMockDaily(price);
-      });
-      setStockData(mockDaily);
-      setDataSource(prev => prev === 'live' ? 'partial' : 'mock');
-    }
-
     setLoadingMsg('');
-    return dailyMap;
   }, []);
 
-  // ---- WebSocket for real-time updates ----
+  // ---- Fetch news ----
+  const fetchNewsData = useCallback(async () => {
+    try {
+      const news = await getNews(selectedStock, 7);
+      setNewsData(news);
+    } catch (e) { /* skip */ }
+  }, [selectedStock]);
+
+  // ---- WebSocket ----
   useEffect(() => {
     const stream = new RealtimeStream((trade) => {
       setQuotes(prev => {
@@ -177,23 +147,28 @@ export default function App() {
         };
       });
     });
-
     stream.connect();
     WATCHLIST_CONFIG.forEach(s => stream.subscribe(s.ticker));
-
     return () => stream.disconnect();
   }, []);
 
-  // ---- Initial load: quotes first, then candles ----
+  // ---- Initial load ----
   useEffect(() => {
     async function loadData() {
+      await fetchIndexes();
       await fetchQuotes();
       await fetchCandles();
+      await fetchNewsData();
     }
     loadData();
-  }, [fetchQuotes, fetchCandles]);
+  }, [fetchIndexes, fetchQuotes, fetchCandles, fetchNewsData]);
 
-  // ---- Run AI analysis when candle data changes ----
+  // ---- Refetch news when selected stock changes ----
+  useEffect(() => {
+    fetchNewsData();
+  }, [selectedStock, fetchNewsData]);
+
+  // ---- Run AI analysis ----
   useEffect(() => {
     if (Object.keys(stockData).length > 0) {
       analyzeMultiple(stockData);
@@ -202,15 +177,33 @@ export default function App() {
 
   const signals = getSignals();
 
+  // ---- Compute sector performance from real data ----
+  const sectorPerformance = useMemo(() => {
+    const sectorMap = {
+      'AAPL': 'Technology', 'NVDA': 'Technology', 'MSFT': 'Technology',
+      'GOOGL': 'Technology', 'META': 'Technology',
+      'AMZN': 'Consumer', 'TSLA': 'Automotive'
+    };
+    const sectors = {};
+    Object.entries(quotes).forEach(([symbol, q]) => {
+      const sector = sectorMap[symbol] || 'Other';
+      if (!sectors[sector]) sectors[sector] = { total: 0, count: 0 };
+      sectors[sector].total += (q.changePct || 0);
+      sectors[sector].count += 1;
+    });
+    return Object.entries(sectors).map(([name, data]) => ({
+      name,
+      val: parseFloat((data.total / data.count).toFixed(2))
+    }));
+  }, [quotes]);
+
   // ---- Chart config ----
   const chartData = stockData[selectedStock] || [];
   const priceChartConfig = {
     labels: chartData.map(d => d.date?.slice(5) || ''),
     datasets: [{
       data: chartData.map(d => d.close),
-      borderColor: '#22d3a7',
-      borderWidth: 2,
-      fill: true,
+      borderColor: '#22d3a7', borderWidth: 2, fill: true,
       backgroundColor: (ctx) => {
         if (!ctx.chart?.ctx) return 'rgba(34,211,167,0)';
         const g = ctx.chart.ctx.createLinearGradient(0, 0, 0, 260);
@@ -218,22 +211,14 @@ export default function App() {
         g.addColorStop(1, 'rgba(34,211,167,0)');
         return g;
       },
-      pointRadius: 0,
-      pointHoverRadius: 5,
-      pointHoverBackgroundColor: '#22d3a7',
-      tension: 0.3
+      pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: '#22d3a7', tension: 0.3
     }]
   };
-
   const priceChartOptions = {
     responsive: true, maintainAspectRatio: false,
     plugins: {
       legend: { display: false },
-      tooltip: {
-        backgroundColor: '#1a1f2a', titleColor: '#e2e8f0', bodyColor: '#22d3a7',
-        borderColor: '#22d3a7', borderWidth: 1,
-        callbacks: { label: (c) => '$' + c.raw?.toFixed(2) }
-      }
+      tooltip: { backgroundColor: '#1a1f2a', titleColor: '#e2e8f0', bodyColor: '#22d3a7', borderColor: '#22d3a7', borderWidth: 1, callbacks: { label: (c) => '$' + c.raw?.toFixed(2) } }
     },
     scales: {
       x: { ticks: { color: '#64748b', maxTicksLimit: 8, font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
@@ -247,15 +232,10 @@ export default function App() {
   const avgVol = volData.length > 0 ? volData.reduce((s, d) => s + d.volume, 0) / volData.length : 1;
   const volumeChartConfig = {
     labels: volData.map(d => d.date?.slice(5) || ''),
-    datasets: [{
-      data: volData.map(d => d.volume),
-      backgroundColor: volData.map(d => d.volume > avgVol ? 'rgba(34,211,167,0.5)' : 'rgba(100,116,139,0.25)'),
-      borderRadius: 3
-    }]
+    datasets: [{ data: volData.map(d => d.volume), backgroundColor: volData.map(d => d.volume > avgVol ? 'rgba(34,211,167,0.5)' : 'rgba(100,116,139,0.25)'), borderRadius: 3 }]
   };
   const volumeChartOptions = {
-    responsive: true, maintainAspectRatio: false,
-    plugins: { legend: { display: false } },
+    responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
     scales: {
       x: { ticks: { color: '#64748b', maxTicksLimit: 6, font: { size: 10 } }, grid: { display: false } },
       y: { ticks: { color: '#64748b', font: { size: 10 }, callback: v => (v / 1e6).toFixed(0) + 'M' }, grid: { color: 'rgba(255,255,255,0.04)' } }
@@ -278,37 +258,86 @@ export default function App() {
     setChatLoading(false);
   }
 
-  // Screener
-  const screenerStocks = WATCHLIST_CONFIG.map(w => {
-    const quote = quotes[w.ticker];
-    const analysis = analyses[w.ticker];
-    return {
-      ...w, price: quote?.price || 0, change: quote?.changePct || 0,
-      volume: stockData[w.ticker]?.slice(-1)[0]?.volume || 0,
-      signal: analysis?.aggregated?.action || 'hold',
-      confidence: analysis?.aggregated?.confidence || 0,
-      rsi: analysis?.skills?.technical?.rsi || '-'
-    };
-  });
+  // ---- Screener with working filters ----
+  const screenerStocks = useMemo(() => {
+    const stocks = WATCHLIST_CONFIG.map(w => {
+      const quote = quotes[w.ticker];
+      const analysis = analyses[w.ticker];
+      const tech = analysis?.skills?.technical;
+      return {
+        ...w,
+        price: quote?.price || 0,
+        change: quote?.changePct || 0,
+        volume: stockData[w.ticker]?.slice(-1)[0]?.volume || 0,
+        signal: analysis?.aggregated?.action || 'hold',
+        confidence: analysis?.aggregated?.confidence || 0,
+        rsi: tech?.rsi || null,
+        macd: tech?.macdSignal || null,
+        trend: tech?.trend || null,
+        volatility: tech?.volatility || null
+      };
+    });
+
+    // Apply filter
+    switch (activeFilter) {
+      case 'Strong buy': return stocks.filter(s => s.signal === 'buy' && s.confidence >= 70);
+      case 'Buy': return stocks.filter(s => s.signal === 'buy');
+      case 'Hold': return stocks.filter(s => s.signal === 'hold');
+      case 'Sell': return stocks.filter(s => s.signal === 'sell');
+      case 'Oversold': return stocks.filter(s => s.rsi !== null && s.rsi < 35);
+      case 'High volume': {
+        const sorted = [...stocks].sort((a, b) => b.volume - a.volume);
+        return sorted.slice(0, 5);
+      }
+      default: return stocks;
+    }
+  }, [quotes, analyses, stockData, activeFilter]);
 
   // Status
-  const statusColor = dataSource === 'live' ? '#22c55e' : dataSource === 'partial' ? '#f59e0b' : dataSource === 'mock' ? '#ef4444' : '#64748b';
-  const statusText = dataSource === 'live' ? 'LIVE DATA' : dataSource === 'partial' ? 'PARTIAL' : dataSource === 'mock' ? 'MOCK DATA' : 'LOADING';
+  const statusColor = dataSource === 'live' ? '#22c55e' : '#64748b';
+  const statusText = dataSource === 'live' ? 'LIVE' : 'LOADING';
+
+  // ---- Enhanced AI insight ----
+  const enhancedInsight = useMemo(() => {
+    if (!insight) return 'Analyzing market conditions...';
+
+    // Add real data to the insight
+    const buySignals = signals.filter(s => s.action === 'buy');
+    const sellSignals = signals.filter(s => s.action === 'sell');
+    const spyQuote = indexQuotes['SPY'];
+    const spyDir = spyQuote?.changePct >= 0 ? 'up' : 'down';
+
+    let enhanced = '';
+    if (spyQuote) {
+      enhanced += `<strong>S&P 500 ${spyDir === 'up' ? '▲' : '▼'} ${Math.abs(spyQuote.changePct).toFixed(2)}%</strong> today. `;
+    }
+    enhanced += insight;
+
+    // Add specific RSI readings
+    const oversold = signals.filter(s => {
+      const tech = analyses[s.symbol]?.skills?.technical;
+      return tech?.rsi && tech.rsi < 35;
+    });
+    if (oversold.length > 0) {
+      enhanced += ` Oversold stocks (RSI < 35): ${oversold.map(s => {
+        const rsi = analyses[s.symbol]?.skills?.technical?.rsi;
+        return `${s.symbol} (RSI ${rsi})`;
+      }).join(', ')}.`;
+    }
+
+    return enhanced;
+  }, [insight, signals, indexQuotes, analyses]);
 
   return (
     <div className="app-shell">
       <header className="app-header">
         <div className="logo">
-          <div className="logo-mark">S</div>
-          <div className="logo-text">Stock<span>Sage</span> AI</div>
+          <div className="logo-mark">M</div>
+          <div className="logo-text">Market<span>Pulse</span></div>
           <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 700, padding: '2px 6px', borderRadius: 4, marginLeft: 8, background: statusColor + '22', color: statusColor }}>
             {statusText}
           </span>
-          {loadingMsg && (
-            <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 12 }}>
-              {loadingMsg}
-            </span>
-          )}
+          {loadingMsg && <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 12 }}>{loadingMsg}</span>}
         </div>
 
         <nav className="nav-tabs">
@@ -320,7 +349,7 @@ export default function App() {
           ))}
         </nav>
 
-        <button onClick={async () => { await fetchQuotes(); await fetchCandles(); }}
+        <button onClick={async () => { await fetchIndexes(); await fetchQuotes(); await fetchCandles(); }}
           style={{ background: 'transparent', border: '0.5px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '6px 12px', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
           <RefreshCw size={14} /> Refresh
         </button>
@@ -328,29 +357,25 @@ export default function App() {
 
       <main className="app-body">
 
+        {/* ====== DASHBOARD ====== */}
         {activeTab === 'dashboard' && (
           <>
-            {/* Index metrics — derived from stock quotes */}
+            {/* Index metrics — real ETF data */}
             <div className="metrics-grid">
-              {[
-                { label: 'S&P 500', ticker: 'AAPL' },
-                { label: 'NASDAQ', ticker: 'NVDA' },
-                { label: 'DOW JONES', ticker: 'MSFT' },
-                { label: 'VIX', ticker: null },
-              ].map((m, i) => {
-                const q = m.ticker ? quotes[m.ticker] : null;
+              {INDEX_ETFS.map((idx, i) => {
+                const q = idx.isMock ? null : indexQuotes[idx.ticker];
                 const change = q?.changePct || 0;
-                const up = m.ticker ? change >= 0 : null;
+                const up = q ? change >= 0 : null;
                 return (
                   <div key={i} className={`metric-card animate-in ${up === true ? 'up' : up === false ? 'down' : 'neutral'}`} style={{ animationDelay: `${i * 0.06}s` }}>
-                    <div className="metric-label">{m.label}</div>
+                    <div className="metric-label">{idx.label}</div>
                     <div className="metric-value">
-                      {q ? '$' + q.price.toFixed(2) : m.ticker ? '...' : '14.82'}
+                      {q ? `$${q.price.toFixed(2)}` : idx.isMock ? '—' : '...'}
                     </div>
                     <div className={`metric-change ${up === true ? 'up' : up === false ? 'down' : ''}`}>
-                      {up === true ? '▲' : up === false ? '▼' : '─'} {Math.abs(change).toFixed(2)}%
+                      {up === true ? '▲' : up === false ? '▼' : '─'} {q ? Math.abs(change).toFixed(2) + '%' : '—'}
                     </div>
-                    {m.ticker && <div style={{ fontSize: 10, color: 'var(--text-faint)', marginTop: 2 }}>via {m.ticker}</div>}
+                    <div style={{ fontSize: 10, color: 'var(--text-faint)', marginTop: 2 }}>{idx.sublabel}</div>
                   </div>
                 );
               })}
@@ -360,13 +385,9 @@ export default function App() {
             <div className="ai-insight animate-in" style={{ animationDelay: '0.25s' }}>
               <div className="ai-insight-header">
                 <div className="ai-pulse" />
-                <div className="ai-insight-label">
-                  AI market insight — {dataSource === 'live' ? 'analyzing real market data' : 'updated just now'}
-                </div>
+                <div className="ai-insight-label">AI market insight — analyzing real market data</div>
               </div>
-              <div className="ai-insight-text" dangerouslySetInnerHTML={{
-                __html: insight || 'Analyzing market conditions across your watchlist...'
-              }} />
+              <div className="ai-insight-text" dangerouslySetInnerHTML={{ __html: enhancedInsight }} />
             </div>
 
             {/* Chart + Watchlist */}
@@ -375,20 +396,19 @@ export default function App() {
                 <div className="card-header">
                   <span className="card-title">
                     Price action — {selectedStock}
-                    {quotes[selectedStock]?.price && (
-                      <span style={{ marginLeft: 8, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>
-                        ${quotes[selectedStock].price.toFixed(2)}
+                    {quotes[selectedStock]?.price && <span style={{ marginLeft: 8, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>${quotes[selectedStock].price.toFixed(2)}</span>}
+                    {quotes[selectedStock]?.changePct != null && (
+                      <span style={{ marginLeft: 6, fontSize: 11, color: quotes[selectedStock].changePct >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                        {quotes[selectedStock].changePct >= 0 ? '▲' : '▼'}{Math.abs(quotes[selectedStock].changePct).toFixed(2)}%
                       </span>
                     )}
                   </span>
-                  <span className="badge badge-live">{dataSource === 'live' ? 'LIVE' : 'DEMO'}</span>
+                  <span className="badge badge-live">LIVE</span>
                 </div>
                 <div style={{ position: 'relative', height: 260 }}>
-                  {chartData.length > 0 ? (
-                    <Line data={priceChartConfig} options={priceChartOptions} />
-                  ) : (
+                  {chartData.length > 0 ? <Line data={priceChartConfig} options={priceChartOptions} /> : (
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', fontSize: 13 }}>
-                      {loadingMsg ? `Loading ${selectedStock} chart...` : 'No data available — try refreshing'}
+                      {loadingMsg ? `Loading ${selectedStock}...` : 'No data — try refreshing'}
                     </div>
                   )}
                 </div>
@@ -401,14 +421,21 @@ export default function App() {
                   const price = quote?.price || 0;
                   const change = quote?.changePct || 0;
                   const up = change >= 0;
+                  const signal = analyses[stock.ticker]?.aggregated?.action;
                   return (
                     <div key={stock.ticker} className="wl-item" onClick={() => setSelectedStock(stock.ticker)}>
                       <div className="wl-left">
-                        <div className="wl-icon" style={{ background: stock.color + '22', color: stock.color }}>
-                          {stock.ticker.slice(0, 2)}
-                        </div>
+                        <div className="wl-icon" style={{ background: stock.color + '22', color: stock.color }}>{stock.ticker.slice(0, 2)}</div>
                         <div>
-                          <div className="wl-ticker" style={{ fontWeight: selectedStock === stock.ticker ? 700 : 500 }}>{stock.ticker}</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span className="wl-ticker" style={{ fontWeight: selectedStock === stock.ticker ? 700 : 500 }}>{stock.ticker}</span>
+                            {signal && (
+                              <span style={{ fontSize: 8, fontWeight: 700, fontFamily: 'var(--font-mono)', padding: '1px 4px', borderRadius: 3,
+                                background: signal === 'buy' ? 'var(--green-dim)' : signal === 'sell' ? 'var(--red-dim)' : 'var(--accent3-dim)',
+                                color: signal === 'buy' ? 'var(--green)' : signal === 'sell' ? 'var(--red)' : 'var(--accent3)'
+                              }}>{signal.toUpperCase()}</span>
+                            )}
+                          </div>
                           <div className="wl-name">{stock.name}</div>
                         </div>
                       </div>
@@ -429,27 +456,28 @@ export default function App() {
               <div className="card animate-in" style={{ animationDelay: '0.4s' }}>
                 <div className="card-header">
                   <span className="card-title">AI signals</span>
-                  <span className="badge badge-ai">AI</span>
+                  <span className="badge badge-ai">4 SKILLS</span>
                 </div>
-                {signals.length > 0 ? signals.map((s, i) => (
-                  <div key={i} className="signal-item">
-                    <div className={`signal-dot ${s.action}`} />
-                    <div className="signal-ticker">{s.symbol}</div>
-                    <div className="signal-text">{s.reasoning?.slice(0, 80) || 'Analyzing...'}</div>
-                    <div className="signal-confidence" style={{
-                      color: s.action === 'buy' ? 'var(--green)' : s.action === 'sell' ? 'var(--red)' : 'var(--accent3)'
-                    }}>{s.confidence}%</div>
-                  </div>
-                )) : (
-                  <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-                    {loadingMsg ? 'Waiting for chart data to run analysis...' : 'No signals generated'}
-                  </div>
-                )}
+                {signals.length > 0 ? signals.map((s, i) => {
+                  const tech = analyses[s.symbol]?.skills?.technical;
+                  return (
+                    <div key={i} className="signal-item">
+                      <div className={`signal-dot ${s.action}`} />
+                      <div className="signal-ticker">{s.symbol}</div>
+                      <div className="signal-text">
+                        {tech ? `RSI ${tech.rsi} · ${tech.macdSignal} · ${tech.trend}` : s.reasoning?.slice(0, 60) || 'Analyzing...'}
+                      </div>
+                      <div className="signal-confidence" style={{
+                        color: s.action === 'buy' ? 'var(--green)' : s.action === 'sell' ? 'var(--red)' : 'var(--accent3)'
+                      }}>{s.confidence}%</div>
+                    </div>
+                  );
+                }) : <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Waiting for data...</div>}
               </div>
 
               <div className="card animate-in" style={{ animationDelay: '0.45s' }}>
-                <div className="card-header"><span className="card-title">Sector performance</span></div>
-                {SECTORS.map((s, i) => {
+                <div className="card-header"><span className="card-title">Sector performance (today)</span></div>
+                {sectorPerformance.length > 0 ? sectorPerformance.map((s, i) => {
                   const up = s.val >= 0;
                   return (
                     <div key={i} className="sector-row">
@@ -457,69 +485,82 @@ export default function App() {
                       <div className="sector-track">
                         <div className="sector-fill" style={{ width: `${Math.min(Math.abs(s.val) / 4 * 100, 100)}%`, background: up ? 'var(--green)' : 'var(--red)' }} />
                       </div>
-                      <div className={`sector-val ${up ? 'up' : 'down'}`}>{up ? '+' : ''}{s.val.toFixed(1)}%</div>
+                      <div className={`sector-val ${up ? 'up' : 'down'}`}>{up ? '+' : ''}{s.val.toFixed(2)}%</div>
                     </div>
                   );
-                })}
+                }) : <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Loading sector data...</div>}
               </div>
             </div>
 
-            {/* Portfolio + Volume */}
+            {/* News + Volume */}
             <div className="grid-1-1">
               <div className="card animate-in" style={{ animationDelay: '0.5s' }}>
-                <div className="card-header"><span className="card-title">Portfolio allocation</span></div>
-                <div className="portfolio-layout">
-                  <div className="ring-container">
-                    <Doughnut data={donutConfig} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { backgroundColor: '#1a1f2a', bodyColor: '#e2e8f0' } } }} />
-                    <div className="ring-center-label">
-                      <div className="ring-value">$124.8K</div>
-                      <div className="ring-sub">total value</div>
-                    </div>
-                  </div>
-                  <div className="ring-legend">
-                    {PORTFOLIO.map((p, i) => (
-                      <div key={i} className="leg-item">
-                        <div className="leg-swatch" style={{ background: p.color }} />
-                        <span>{p.label}</span>
-                        <span className="leg-pct">{p.val}%</span>
-                      </div>
-                    ))}
-                  </div>
+                <div className="card-header">
+                  <span className="card-title">News — {selectedStock}</span>
+                  <span className="badge badge-live">LIVE</span>
                 </div>
+                {newsData.length > 0 ? newsData.slice(0, 5).map((article, i) => (
+                  <a key={i} href={article.url} target="_blank" rel="noopener noreferrer"
+                    style={{ display: 'block', padding: '10px 0', borderBottom: '0.5px solid var(--border)', textDecoration: 'none', color: 'inherit' }}>
+                    <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 3, lineHeight: 1.4 }}>{article.headline}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--text-muted)' }}>
+                      <span>{article.source}</span>
+                      <span>·</span>
+                      <span>{new Date(article.datetime).toLocaleDateString()}</span>
+                      <ExternalLink size={10} style={{ marginLeft: 'auto', opacity: 0.5 }} />
+                    </div>
+                  </a>
+                )) : <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Loading news...</div>}
               </div>
 
               <div className="card animate-in" style={{ animationDelay: '0.55s' }}>
                 <div className="card-header">
-                  <span className="card-title">Volume analysis — {selectedStock}</span>
-                  <span className="badge badge-live">{dataSource === 'live' ? 'LIVE' : 'DEMO'}</span>
+                  <span className="card-title">Volume — {selectedStock}</span>
                 </div>
-                <div style={{ position: 'relative', height: 160 }}>
+                <div style={{ position: 'relative', height: 180 }}>
                   {volData.length > 0 ? <Bar data={volumeChartConfig} options={volumeChartOptions} /> : (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', fontSize: 13 }}>Loading volume data...</div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', fontSize: 13 }}>Loading...</div>
                   )}
                 </div>
               </div>
             </div>
 
-            {/* AI Chat */}
-            <div className="card animate-in" style={{ animationDelay: '0.6s', marginTop: 12 }}>
-              <div className="card-header">
-                <span className="card-title">Ask StockSage AI anything</span>
-                <span className="badge badge-ai">AI</span>
+            {/* Portfolio ring + AI Chat */}
+            <div className="grid-1-1">
+              <div className="card animate-in" style={{ animationDelay: '0.6s' }}>
+                <div className="card-header"><span className="card-title">Portfolio allocation</span></div>
+                <div className="portfolio-layout">
+                  <div className="ring-container">
+                    <Doughnut data={donutConfig} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { backgroundColor: '#1a1f2a', bodyColor: '#e2e8f0' } } }} />
+                    <div className="ring-center-label"><div className="ring-value">$124.8K</div><div className="ring-sub">total value</div></div>
+                  </div>
+                  <div className="ring-legend">
+                    {PORTFOLIO.map((p, i) => (
+                      <div key={i} className="leg-item"><div className="leg-swatch" style={{ background: p.color }} /><span>{p.label}</span><span className="leg-pct">{p.val}%</span></div>
+                    ))}
+                  </div>
+                </div>
               </div>
-              <div className="chat-input-row">
-                <input ref={chatRef} className="chat-input" value={chatInput}
-                  onChange={e => setChatInput(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleChat()}
-                  placeholder="e.g. Should I buy NVDA at current levels? Analyze AAPL for me." />
-                <button className="chat-send" onClick={handleChat}>{chatLoading ? '...' : '↑'}</button>
+
+              <div className="card animate-in" style={{ animationDelay: '0.65s' }}>
+                <div className="card-header">
+                  <span className="card-title">Ask AI anything</span>
+                  <span className="badge badge-ai">AI</span>
+                </div>
+                <div className="chat-input-row">
+                  <input ref={chatRef} className="chat-input" value={chatInput}
+                    onChange={e => setChatInput(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleChat()}
+                    placeholder="Should I buy NVDA? Analyze AAPL. What's risky?" />
+                  <button className="chat-send" onClick={handleChat}>{chatLoading ? '...' : '↑'}</button>
+                </div>
+                {chatResponse && <div className="chat-response" dangerouslySetInnerHTML={{ __html: chatResponse }} />}
               </div>
-              {chatResponse && <div className="chat-response" dangerouslySetInnerHTML={{ __html: chatResponse }} />}
             </div>
           </>
         )}
 
-        {/* SCREENER */}
+        {/* ====== SCREENER ====== */}
         {activeTab === 'screener' && (
           <div className="card animate-in">
             <div className="card-header">
@@ -528,50 +569,60 @@ export default function App() {
             </div>
             <div className="screener-filters">
               {['All', 'Strong buy', 'Buy', 'Hold', 'Sell', 'Oversold', 'High volume'].map(f => (
-                <button key={f} className="filter-chip">{f}</button>
+                <button key={f} className={`filter-chip ${activeFilter === f ? 'active' : ''}`}
+                  onClick={() => setActiveFilter(f)}>{f}</button>
               ))}
             </div>
-            <table className="screener-table">
-              <thead><tr><th>Symbol</th><th>Price</th><th>Change</th><th>Volume</th><th>RSI</th><th>AI Signal</th><th>Confidence</th></tr></thead>
-              <tbody>
-                {screenerStocks.map(s => (
-                  <tr key={s.ticker} onClick={() => { setSelectedStock(s.ticker); setActiveTab('dashboard'); }} style={{ cursor: 'pointer' }}>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{ width: 28, height: 28, borderRadius: 6, background: s.color + '22', color: s.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{s.ticker.slice(0, 2)}</div>
-                        <div><div style={{ fontWeight: 500 }}>{s.ticker}</div><div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{s.name}</div></div>
-                      </div>
-                    </td>
-                    <td className="mono">${s.price.toFixed(2)}</td>
-                    <td style={{ color: s.change >= 0 ? 'var(--green)' : 'var(--red)' }} className="mono">{s.change >= 0 ? '+' : ''}{s.change.toFixed(2)}%</td>
-                    <td className="mono">{(s.volume / 1e6).toFixed(1)}M</td>
-                    <td className="mono">{s.rsi}</td>
-                    <td>
-                      <span style={{ padding: '3px 10px', borderRadius: 12, fontSize: 11, fontWeight: 700, fontFamily: 'var(--font-mono)',
-                        background: s.signal === 'buy' ? 'var(--green-dim)' : s.signal === 'sell' ? 'var(--red-dim)' : 'var(--accent3-dim)',
-                        color: s.signal === 'buy' ? 'var(--green)' : s.signal === 'sell' ? 'var(--red)' : 'var(--accent3)' }}>
-                        {s.signal.toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="mono">{s.confidence}%</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            {screenerStocks.length > 0 ? (
+              <table className="screener-table">
+                <thead><tr><th>Symbol</th><th>Price</th><th>Change</th><th>Volume</th><th>RSI</th><th>MACD</th><th>Trend</th><th>AI Signal</th><th>Confidence</th></tr></thead>
+                <tbody>
+                  {screenerStocks.map(s => (
+                    <tr key={s.ticker} onClick={() => { setSelectedStock(s.ticker); setActiveTab('dashboard'); }} style={{ cursor: 'pointer' }}>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{ width: 28, height: 28, borderRadius: 6, background: s.color + '22', color: s.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{s.ticker.slice(0, 2)}</div>
+                          <div><div style={{ fontWeight: 500 }}>{s.ticker}</div><div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{s.name}</div></div>
+                        </div>
+                      </td>
+                      <td className="mono">${s.price.toFixed(2)}</td>
+                      <td style={{ color: s.change >= 0 ? 'var(--green)' : 'var(--red)' }} className="mono">{s.change >= 0 ? '+' : ''}{s.change.toFixed(2)}%</td>
+                      <td className="mono">{(s.volume / 1e6).toFixed(1)}M</td>
+                      <td className="mono" style={{ color: s.rsi && s.rsi < 30 ? 'var(--green)' : s.rsi && s.rsi > 70 ? 'var(--red)' : 'inherit' }}>{s.rsi || '-'}</td>
+                      <td style={{ fontSize: 11, color: s.macd?.includes('bullish') ? 'var(--green)' : 'var(--red)' }}>{s.macd || '-'}</td>
+                      <td style={{ fontSize: 11 }}>{s.trend || '-'}</td>
+                      <td>
+                        <span style={{ padding: '3px 10px', borderRadius: 12, fontSize: 11, fontWeight: 700, fontFamily: 'var(--font-mono)',
+                          background: s.signal === 'buy' ? 'var(--green-dim)' : s.signal === 'sell' ? 'var(--red-dim)' : 'var(--accent3-dim)',
+                          color: s.signal === 'buy' ? 'var(--green)' : s.signal === 'sell' ? 'var(--red)' : 'var(--accent3)' }}>
+                          {s.signal.toUpperCase()}
+                        </span>
+                      </td>
+                      <td className="mono">{s.confidence}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--text-muted)' }}>
+                No stocks match the "{activeFilter}" filter
+              </div>
+            )}
           </div>
         )}
 
-        {/* SIGNALS */}
+        {/* ====== SIGNALS ====== */}
         {activeTab === 'signals' && (
           <>
             <div className="ai-insight animate-in">
-              <div className="ai-insight-header"><div className="ai-pulse" /><div className="ai-insight-label">AI signal engine — multi-skill analysis</div></div>
-              <div className="ai-insight-text" dangerouslySetInnerHTML={{ __html: insight || 'Generating signals from 4 analysis skills...' }} />
+              <div className="ai-insight-header"><div className="ai-pulse" /><div className="ai-insight-label">AI signal engine — 4 analysis skills</div></div>
+              <div className="ai-insight-text" dangerouslySetInnerHTML={{ __html: enhancedInsight }} />
             </div>
             <div className="card animate-in" style={{ animationDelay: '0.1s' }}>
-              <div className="card-header"><span className="card-title">Active signals</span><span className="badge badge-ai">4 skills</span></div>
+              <div className="card-header"><span className="card-title">Active signals</span><span className="badge badge-ai">TECHNICAL · PATTERN · FUNDAMENTAL · SENTIMENT</span></div>
               {signals.map((s, i) => {
                 const analysis = analyses[s.symbol];
+                const tech = analysis?.skills?.technical;
                 return (
                   <div key={i} style={{ padding: '14px 0', borderBottom: '0.5px solid var(--border)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -583,6 +634,11 @@ export default function App() {
                           color: s.action === 'buy' ? 'var(--green)' : s.action === 'sell' ? 'var(--red)' : 'var(--accent3)' }}>
                           {s.action.toUpperCase()}
                         </span>
+                        {tech && (
+                          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                            RSI {tech.rsi} · Vol {tech.volumeRatio}x avg
+                          </span>
+                        )}
                       </div>
                       <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700,
                         color: s.action === 'buy' ? 'var(--green)' : s.action === 'sell' ? 'var(--red)' : 'var(--accent3)' }}>
@@ -592,13 +648,15 @@ export default function App() {
                     {analysis?.skills && (
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                         {Object.entries(analysis.skills).map(([skill, result]) => (
-                          <span key={skill} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 8, background: 'var(--bg-surface2)', color: 'var(--text-muted)' }}>
+                          <span key={skill} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 8,
+                            background: result.signal === 'buy' ? 'var(--green-dim)' : result.signal === 'sell' ? 'var(--red-dim)' : 'var(--bg-surface2)',
+                            color: result.signal === 'buy' ? 'var(--green)' : result.signal === 'sell' ? 'var(--red)' : 'var(--text-muted)' }}>
                             {skill}: {result.signal} ({result.confidence}%)
                           </span>
                         ))}
                       </div>
                     )}
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>{s.reasoning?.slice(0, 120)}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>{s.reasoning?.slice(0, 150)}</div>
                   </div>
                 );
               })}
@@ -606,7 +664,7 @@ export default function App() {
           </>
         )}
 
-        {/* PORTFOLIO */}
+        {/* ====== PORTFOLIO ====== */}
         {activeTab === 'portfolio' && (
           <div className="grid-1-1">
             <div className="card animate-in">
@@ -624,7 +682,7 @@ export default function App() {
               <div className="card-header"><span className="card-title">Holdings</span></div>
               {WATCHLIST_CONFIG.slice(0, 5).map((s, i) => {
                 const shares = [150, 12, 25, 40, 35][i];
-                const price = quotes[s.ticker]?.price || MOCK_PRICES[s.ticker];
+                const price = quotes[s.ticker]?.price || 0;
                 const value = shares * price;
                 const change = quotes[s.ticker]?.changePct || 0;
                 return (
