@@ -1,175 +1,271 @@
 # Market Pulse
+### AI-Powered Stock Market Intelligence Platform
 
-An AI-powered stock market analysis dashboard with real-time data, interactive charts, and intelligent trade signals. Built with React, Chart.js, Express, and Electron.
+<div align="center">
 
-![Dashboard](https://img.shields.io/badge/Platform-Web%20%7C%20Desktop-22d3a7?style=flat-square)
-![Data](https://img.shields.io/badge/Data-Finnhub%20%7C%20Yahoo-3b82f6?style=flat-square)
-![AI](https://img.shields.io/badge/AI-Claude%20%7C%204%20Skills-f59e0b?style=flat-square)
+![React](https://img.shields.io/badge/React-18-61dafb?style=for-the-badge&logo=react&logoColor=white)
+![Express](https://img.shields.io/badge/Express-4-000000?style=for-the-badge&logo=express&logoColor=white)
+![Electron](https://img.shields.io/badge/Electron-28-47848f?style=for-the-badge&logo=electron&logoColor=white)
+![Claude AI](https://img.shields.io/badge/Claude_AI-Anthropic-d4a574?style=for-the-badge)
+![Chart.js](https://img.shields.io/badge/Chart.js-4-ff6384?style=for-the-badge&logo=chartdotjs&logoColor=white)
 
-## What it does
+**Real-time market data · 4-skill AI analysis engine · Interactive technical charts · Claude-powered chat**
 
-Market Pulse connects to live market data and runs AI analysis across 4 different skill modules to generate trade signals. It works as a web app or a native Windows desktop app.
+[Features](#features) · [Architecture](#architecture) · [Setup](#setup) · [Extending](#extending-the-ai-agent)
 
-**Data pipeline:**
-- Real-time quotes and WebSocket streaming via Finnhub API
-- Historical OHLCV candle data via Yahoo Finance
-- Live company news feed
-- Market index tracking via SPY, QQQ, DIA ETFs
+</div>
 
-**AI agent with 4 analysis skills:**
-- **Technical** — RSI, MACD, SMA, EMA, Bollinger Bands, ATR, volume analysis
-- **Pattern** — Double top/bottom detection, trend structure, breakouts, consolidation, volume divergence
-- **Fundamental** — P/E ratio, profit margins, revenue growth, 52-week position
-- **Sentiment** — OBV analysis, buying pressure ratio, momentum, volume trends
+---
 
-Each skill produces an independent signal. The agent aggregates them with configurable weights into a final buy/sell/hold recommendation with confidence score.
+![Market Pulse Dashboard](screenshots/dashboard.png)
 
-**Claude-powered chat** — Ask questions about any stock in plain English. The Express backend securely proxies requests to Claude API with full market context (live quotes, signals, technical indicators) so responses reference real data.
+### More views
+
+<details>
+<summary>Click to see more screenshots</summary>
+
+#### AI Signals — 4 skill breakdown per stock
+![Signals](screenshots/signals.png)
+
+#### Stock Screener with filters
+![Screener](screenshots/screener.png)
+
+#### News feed, volume chart, portfolio, AI chat
+![Overview](screenshots/overview.png)
+
+</details>
+
+https://github.com/user-attachments/assets/6ac49a98-5d7f-49aa-b634-bde3e7b61186
+
+## What is this?
+
+Market Pulse is a full-stack stock analysis platform that pulls live market data from multiple sources, runs it through a custom AI agent with 4 independent analysis skills, and presents everything in a professional trading dashboard — with an AI chat assistant that actually understands your portfolio.
+
+It's not a toy project. The AI agent generates real buy/sell/hold signals with confidence scores by combining technical indicators, chart pattern recognition, fundamental metrics, and sentiment analysis. The Claude-powered chat sees all your live data and gives contextual answers.
+
+---
 
 ## Features
 
-- Interactive charts with crosshair cursor, OHLCV tooltips, and daily change
-- SMA 20/50 overlay toggles on the price chart
-- Timeframe selector (1W, 1M, 3M, ALL)
-- Color-coded volume bars (green for up days, red for down days)
-- Custom watchlist — search and add any stock, persists across sessions
-- Stock screener with working filters (Strong Buy, Oversold, High Volume, etc.)
-- Real-time sector performance computed from live data
-- Live news feed from Finnhub per selected stock
-- Portfolio allocation view with donut chart
-- Native Windows desktop app via Electron with system tray
+### Real-Time Market Data
+- Live stock quotes via **Finnhub API** with WebSocket streaming
+- Historical OHLCV candle data via **Yahoo Finance** (no API key needed)
+- Intraday 5-minute charts for current trading day
+- Market index tracking through SPY, QQQ, DIA ETFs
+- Live company news feed per stock
 
-## Tech stack
+### Interactive Trading Charts
+- **Crosshair cursor** with synchronized OHLCV tooltips
+- **SMA 20 / SMA 50** moving average overlays (toggle on/off)
+- **RSI panel** with overbought (70) and oversold (30) zones
+- **MACD panel** with signal line crossovers and histogram
+- **Color-coded volume bars** — green for up days, red for down days
+- **6 timeframes** — 1D (intraday), 1W, 1M, 3M, 6M, ALL
+- Price and indicator values update live as you hover
+
+### AI Analysis Engine
+Four independent analysis modules, each producing a signal:
+
+| Skill | What it analyzes |
+|-------|-----------------|
+| **Technical** | RSI, MACD, SMA/EMA, Bollinger Bands, ATR, volume patterns |
+| **Pattern** | Double tops/bottoms, trend structure, breakouts, consolidation |
+| **Fundamental** | P/E ratio, profit margins, revenue growth, 52-week range |
+| **Sentiment** | On-Balance Volume, buying pressure, momentum, volume divergence |
+
+Signals are aggregated with configurable weights into a final recommendation with confidence percentage.
+
+### Claude AI Chat
+- Natural language stock analysis — ask anything about your watchlist
+- **Context-aware** — Claude sees live quotes, signals, RSI, MACD, and all technical data
+- Express.js backend keeps the API key secure (never exposed to frontend)
+- Conversation history within session
+
+### Custom Watchlist
+- Search any stock via Finnhub symbol search
+- Add/remove stocks with one click
+- Auto-fetches quote and chart data for new additions
+- Persists across sessions via localStorage
+
+### Stock Screener
+- Filter by: Strong Buy, Buy, Hold, Sell, Oversold (RSI < 35), High Volume
+- Shows price, change, volume, RSI, MACD signal, trend, AI signal, and confidence
+- Click any row to jump to its chart
+
+### Additional
+- Sector performance computed from real stock data
+- Portfolio allocation view with donut chart
+- Native **Windows desktop app** via Electron with system tray
+- Responsive layout
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    React Frontend                        │
+│  ┌──────────┐ ┌──────────────┐ ┌─────────────────────┐  │
+│  │Dashboard │ │ Interactive  │ │ Watchlist Manager   │  │
+│  │  Tabs    │ │   Charts     │ │ (Search + CRUD)     │  │
+│  └──────────┘ └──────────────┘ └─────────────────────┘  │
+│         │              │                  │               │
+│  ┌──────────────────────────────────────────────────┐    │
+│  │              AI Agent Core                        │    │
+│  │  ┌──────────┐┌─────────┐┌────────┐┌───────────┐  │    │
+│  │  │Technical ││Pattern  ││Fundmntl││Sentiment  │  │    │
+│  │  │  Skill   ││ Skill   ││ Skill  ││  Skill    │  │    │
+│  │  └──────────┘└─────────┘└────────┘└───────────┘  │    │
+│  │              Agent Memory                         │    │
+│  └──────────────────────────────────────────────────┘    │
+└───────────────┬──────────────────┬───────────────────────┘
+                │                  │
+    ┌───────────▼──────┐  ┌───────▼────────┐
+    │  Market Data APIs │  │ Express Backend │
+    │  ┌──────────────┐ │  │  ┌───────────┐ │
+    │  │ Finnhub      │ │  │  │ Claude AI │ │
+    │  │ (quotes, WS, │ │  │  │ Proxy     │ │
+    │  │  news)        │ │  │  └───────────┘ │
+    │  ├──────────────┤ │  └────────────────┘
+    │  │ Yahoo Finance│ │
+    │  │ (candles)    │ │
+    │  └──────────────┘ │
+    └──────────────────┘
+```
+
+---
+
+## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
-| Frontend | React 18, Chart.js, react-chartjs-2, Recharts |
-| Backend | Express.js (API proxy for Claude) |
-| Desktop | Electron 28 |
-| Market data | Finnhub API (quotes, WebSocket, news), Yahoo Finance (candles) |
-| AI chat | Claude API (Anthropic) via Express proxy |
-| AI engine | Custom multi-skill agent with memory system |
+| Frontend | React 18, Chart.js 4, react-chartjs-2, Recharts, Lucide icons |
+| Backend | Express.js — secure proxy for Claude API |
+| Desktop | Electron 28 — native Windows app with system tray |
+| Market Data | Finnhub (quotes, WebSocket, news, search), Yahoo Finance (OHLCV candles) |
+| AI Chat | Claude API (Anthropic) via Express proxy |
+| AI Engine | Custom agent with 4 pluggable skill modules + memory system |
 | Indicators | RSI, MACD, SMA, EMA, Bollinger Bands, ATR, VWAP, Stochastic, OBV, Fibonacci |
+
+---
 
 ## Setup
 
 ### Prerequisites
 
-- Node.js 18+
-- Free API key from [Finnhub](https://finnhub.io/) (60 calls/min)
-- Claude API key from [Anthropic](https://console.anthropic.com/) (optional, for AI chat)
+- **Node.js 18+** — [nodejs.org](https://nodejs.org)
+- **Finnhub API key** (free, 60 calls/min) — [finnhub.io](https://finnhub.io/)
+- **Claude API key** (optional, for AI chat) — [console.anthropic.com](https://console.anthropic.com/)
 
-### Install
+### Install and Run
 
 ```bash
+# Clone
 git clone https://github.com/DoshiTirth/market-pulse.git
 cd market-pulse
+
+# Install dependencies
 npm install
-```
 
-### Configure
-
-```bash
+# Configure API keys
 copy .env.example .env
-```
+# Edit .env and add your Finnhub key (required) and Claude key (optional)
 
-Edit `.env` and add your API keys:
-
-```
-REACT_APP_FINNHUB_KEY=your_finnhub_key
-REACT_APP_CLAUDE_API_KEY=your_claude_key
-```
-
-### Run
-
-**Web app:**
-```bash
+# Start the web app
 npm start
-```
 
-**AI chat backend** (separate terminal):
-```bash
+# In a separate terminal — start AI chat backend
 node server.js
-```
 
-**Desktop app:**
-```bash
+# Or run as a desktop app
 npm run electron-dev
 ```
 
-**Build Windows .exe:**
-```bash
-npm run electron-build
-```
+---
 
-## Project structure
+## Project Structure
 
 ```
 market-pulse/
-├── server.js                    # Express backend (Claude API proxy)
+├── server.js                        # Express backend (Claude API proxy)
 ├── public/
-│   └── electron.js              # Electron main process
+│   └── electron.js                  # Electron main process
 ├── src/
 │   ├── agent/
-│   │   ├── AgentCore.js         # Central orchestrator
+│   │   ├── AgentCore.js             # Agent orchestrator + signal aggregation
 │   │   ├── skills/
-│   │   │   ├── TechnicalSkill.js
-│   │   │   ├── PatternSkill.js
-│   │   │   ├── FundamentalSkill.js
-│   │   │   └── SentimentSkill.js
+│   │   │   ├── TechnicalSkill.js    # RSI, MACD, SMA, Bollinger, ATR
+│   │   │   ├── PatternSkill.js      # Chart pattern detection
+│   │   │   ├── FundamentalSkill.js  # Valuation + growth metrics
+│   │   │   └── SentimentSkill.js    # Volume + momentum analysis
 │   │   └── memory/
-│   │       └── AgentMemory.js
+│   │       └── AgentMemory.js       # Analysis history per symbol
 │   ├── components/
-│   │   ├── InteractiveChart.jsx # Charts with crosshair + OHLCV tooltips
-│   │   └── WatchlistManager.jsx # Custom watchlist with search
+│   │   ├── InteractiveChart.jsx     # Charts + RSI/MACD panels
+│   │   └── WatchlistManager.jsx     # Custom watchlist with search
 │   ├── services/
-│   │   ├── stockAPI.js          # Finnhub + Yahoo Finance
-│   │   └── aiChat.js            # Claude API client
+│   │   ├── stockAPI.js              # Finnhub + Yahoo Finance
+│   │   └── aiChat.js                # Claude API client
 │   ├── hooks/
-│   │   ├── useAgent.js
-│   │   └── useStockData.js
+│   │   ├── useAgent.js              # AI agent React hook
+│   │   └── useStockData.js          # Market data React hook
 │   ├── utils/
-│   │   └── indicators.js        # Technical indicator math
-│   ├── App.jsx
-│   └── index.css
+│   │   └── indicators.js            # Technical indicator library
+│   ├── App.jsx                      # Main dashboard
+│   └── index.css                    # Design system
 └── .env.example
 ```
 
-## Adding new agent skills
+---
 
-Create a file in `src/agent/skills/`:
+## Extending the AI Agent
+
+Add a new analysis skill in 3 steps:
+
+**1. Create the skill** — `src/agent/skills/YourSkill.js`
 
 ```javascript
-export default class MySkill {
-  name = 'my-skill';
-  description = 'What this skill analyzes';
+export default class YourSkill {
+  name = 'your-skill';
+  description = 'What it does';
 
   async analyze(stockData, context) {
-    // Your analysis logic here
+    // Your analysis logic
     return {
-      signal: 'buy',      // 'buy' | 'sell' | 'hold'
-      confidence: 75,      // 0-100
-      reasoning: 'Why'
+      signal: 'buy',       // 'buy' | 'sell' | 'hold'
+      confidence: 75,       // 0-100
+      reasoning: 'Why this signal was generated'
     };
   }
 }
 ```
 
-Register it in `AgentCore.js`:
-
+**2. Register it** — in `AgentCore.js`:
 ```javascript
-import MySkill from './skills/MySkill';
-this.registerSkill(new MySkill());
+import YourSkill from './skills/YourSkill';
+this.registerSkill(new YourSkill());
 ```
 
-## API usage
+**3. Done** — the agent automatically includes your skill in signal aggregation.
 
-Finnhub free tier: 60 calls/min. The app uses ~20 calls on initial load (quotes + news), then WebSocket for live updates.
+---
 
-Yahoo Finance: No API key needed. Used for historical candle data only.
+## API Costs
 
-Claude API: ~$0.005 per chat message. $5 credit covers ~1000 conversations.
+| Service | Cost | Usage |
+|---------|------|-------|
+| Finnhub | Free | 60 calls/min — quotes, news, WebSocket, search |
+| Yahoo Finance | Free | No key needed — historical candles only |
+| Claude API | ~$0.005/query | $5 covers ~1000 conversations |
+
+---
 
 ## License
 
 MIT
+
+---
+
+<div align="center">
+  <sub>Built by <a href="https://github.com/DoshiTirth">Tirth Doshi</a></sub>
+</div>
