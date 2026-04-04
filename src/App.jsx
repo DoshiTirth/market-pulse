@@ -15,22 +15,12 @@ import { useAgent } from './hooks/useAgent';
 import { getQuote, getDaily, getNews, RealtimeStream } from './services/stockAPI';
 import { askClaude, checkBackendHealth } from './services/aiChat';
 import InteractiveChart from './components/InteractiveChart';
+import WatchlistManager, { loadWatchlist } from './components/WatchlistManager';
 
 ChartJS.register(
   CategoryScale, LinearScale, PointElement, LineElement,
   BarElement, ArcElement, Filler, Tooltip, Legend
 );
-
-// ---- Config ----
-const WATCHLIST_CONFIG = [
-  { ticker: 'AAPL', name: 'Apple Inc.', color: '#22d3a7' },
-  { ticker: 'NVDA', name: 'NVIDIA Corp.', color: '#3b82f6' },
-  { ticker: 'MSFT', name: 'Microsoft', color: '#f59e0b' },
-  { ticker: 'AMZN', name: 'Amazon', color: '#a78bfa' },
-  { ticker: 'GOOGL', name: 'Alphabet', color: '#ef4444' },
-  { ticker: 'META', name: 'Meta Platforms', color: '#ec4899' },
-  { ticker: 'TSLA', name: 'Tesla Inc.', color: '#6366f1' },
-];
 
 // ETFs that track major indices — real data instead of fake index numbers
 const INDEX_ETFS = [
@@ -52,6 +42,7 @@ const PORTFOLIO = [
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [selectedStock, setSelectedStock] = useState('AAPL');
+  const [watchlist, setWatchlist] = useState(() => loadWatchlist());
   const [stockData, setStockData] = useState({});
   const [quotes, setQuotes] = useState({});
   const [indexQuotes, setIndexQuotes] = useState({});
@@ -88,9 +79,9 @@ export default function App() {
     const quoteMap = {};
     let anySuccess = false;
 
-    for (let i = 0; i < WATCHLIST_CONFIG.length; i++) {
-      const stock = WATCHLIST_CONFIG[i];
-      setLoadingMsg(`Quote: ${stock.ticker} (${i + 1}/${WATCHLIST_CONFIG.length})`);
+    for (let i = 0; i < watchlist.length; i++) {
+      const stock = watchlist[i];
+      setLoadingMsg(`Quote: ${stock.ticker} (${i + 1}/${watchlist.length})`);
       try {
         const quote = await getQuote(stock.ticker);
         if (quote && quote.price > 0) {
@@ -102,17 +93,17 @@ export default function App() {
     }
 
     if (anySuccess) {
-      setQuotes(quoteMap);
+      setQuotes(prev => ({ ...prev, ...quoteMap }));
       setDataSource('live');
     }
     return anySuccess;
-  }, []);
+  }, [watchlist]);
 
   // ---- Fetch candle data (Yahoo Finance) ----
   const fetchCandles = useCallback(async () => {
-    for (let i = 0; i < WATCHLIST_CONFIG.length; i++) {
-      const stock = WATCHLIST_CONFIG[i];
-      setLoadingMsg(`Chart: ${stock.ticker} (${i + 1}/${WATCHLIST_CONFIG.length})`);
+    for (let i = 0; i < watchlist.length; i++) {
+      const stock = watchlist[i];
+      setLoadingMsg(`Chart: ${stock.ticker} (${i + 1}/${watchlist.length})`);
       try {
         const daily = await getDaily(stock.ticker, 100);
         if (daily && daily.length > 0) {
@@ -122,7 +113,7 @@ export default function App() {
       await new Promise(r => setTimeout(r, 600));
     }
     setLoadingMsg('');
-  }, []);
+  }, [watchlist]);
 
   // ---- Fetch news ----
   const fetchNewsData = useCallback(async () => {
@@ -152,7 +143,7 @@ export default function App() {
       });
     });
     stream.connect();
-    WATCHLIST_CONFIG.forEach(s => stream.subscribe(s.ticker));
+    watchlist.forEach(s => stream.subscribe(s.ticker));
     return () => stream.disconnect();
   }, []);
 
@@ -171,6 +162,33 @@ export default function App() {
   useEffect(() => {
     fetchNewsData();
   }, [selectedStock, fetchNewsData]);
+
+  // ---- Fetch data for newly added stocks ----
+  useEffect(() => {
+    async function fetchNewStocks() {
+      for (const stock of watchlist) {
+        // If we don't have a quote for this stock yet, fetch it
+        if (!quotes[stock.ticker]) {
+          try {
+            const quote = await getQuote(stock.ticker);
+            if (quote) setQuotes(prev => ({ ...prev, [stock.ticker]: quote }));
+          } catch (e) { /* skip */ }
+          await new Promise(r => setTimeout(r, 1100));
+        }
+        // If we don't have candle data, fetch it
+        if (!stockData[stock.ticker]) {
+          try {
+            const daily = await getDaily(stock.ticker, 100);
+            if (daily && daily.length > 0) {
+              setStockData(prev => ({ ...prev, [stock.ticker]: daily }));
+            }
+          } catch (e) { /* skip */ }
+          await new Promise(r => setTimeout(r, 600));
+        }
+      }
+    }
+    fetchNewStocks();
+  }, [watchlist]);
 
   // ---- Run AI analysis ----
   useEffect(() => {
@@ -289,7 +307,7 @@ export default function App() {
 
   // ---- Screener with working filters ----
   const screenerStocks = useMemo(() => {
-    const stocks = WATCHLIST_CONFIG.map(w => {
+    const stocks = watchlist.map(w => {
       const quote = quotes[w.ticker];
       const analysis = analyses[w.ticker];
       const tech = analysis?.skills?.technical;
@@ -434,39 +452,14 @@ export default function App() {
               </div>
 
               <div className="card animate-in" style={{ animationDelay: '0.35s' }}>
-                <div className="card-header"><span className="card-title">Watchlist</span></div>
-                {WATCHLIST_CONFIG.map((stock) => {
-                  const quote = quotes[stock.ticker];
-                  const price = quote?.price || 0;
-                  const change = quote?.changePct || 0;
-                  const up = change >= 0;
-                  const signal = analyses[stock.ticker]?.aggregated?.action;
-                  return (
-                    <div key={stock.ticker} className="wl-item" onClick={() => setSelectedStock(stock.ticker)}>
-                      <div className="wl-left">
-                        <div className="wl-icon" style={{ background: stock.color + '22', color: stock.color }}>{stock.ticker.slice(0, 2)}</div>
-                        <div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span className="wl-ticker" style={{ fontWeight: selectedStock === stock.ticker ? 700 : 500 }}>{stock.ticker}</span>
-                            {signal && (
-                              <span style={{ fontSize: 8, fontWeight: 700, fontFamily: 'var(--font-mono)', padding: '1px 4px', borderRadius: 3,
-                                background: signal === 'buy' ? 'var(--green-dim)' : signal === 'sell' ? 'var(--red-dim)' : 'var(--accent3-dim)',
-                                color: signal === 'buy' ? 'var(--green)' : signal === 'sell' ? 'var(--red)' : 'var(--accent3)'
-                              }}>{signal.toUpperCase()}</span>
-                            )}
-                          </div>
-                          <div className="wl-name">{stock.name}</div>
-                        </div>
-                      </div>
-                      <div className="wl-price">
-                        <div>{price > 0 ? `$${price.toFixed(2)}` : '...'}</div>
-                        <div className="wl-pct" style={{ color: up ? 'var(--green)' : 'var(--red)' }}>
-                          {price > 0 ? `${up ? '▲' : '▼'} ${Math.abs(change).toFixed(2)}%` : ''}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+                <WatchlistManager
+                  watchlist={watchlist}
+                  setWatchlist={setWatchlist}
+                  quotes={quotes}
+                  analyses={analyses}
+                  selectedStock={selectedStock}
+                  onSelectStock={setSelectedStock}
+                />
               </div>
             </div>
 
@@ -733,7 +726,7 @@ export default function App() {
             </div>
             <div className="card animate-in" style={{ animationDelay: '0.1s' }}>
               <div className="card-header"><span className="card-title">Holdings</span></div>
-              {WATCHLIST_CONFIG.slice(0, 5).map((s, i) => {
+              {watchlist.slice(0, 5).map((s, i) => {
                 const shares = [150, 12, 25, 40, 35][i];
                 const price = quotes[s.ticker]?.price || 0;
                 const value = shares * price;
