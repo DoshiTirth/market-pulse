@@ -61,6 +61,67 @@ function calcSMA(data, period) {
   return result;
 }
 
+function calcEMA(data, period) {
+  if (!data || data.length === 0 || data[0] == null) return data.map(() => null);
+  const k = 2 / (period + 1);
+  const ema = [data[0]];
+  for (let i = 1; i < data.length; i++) {
+    if (data[i] == null) { ema.push(ema[i - 1]); continue; }
+    ema.push(data[i] * k + ema[i - 1] * (1 - k));
+  }
+  return ema.map(v => v != null ? parseFloat(v.toFixed(2)) : null);
+}
+// ---- RSI calculation ----
+function calcRSI(closes, period = 14) {
+  if (closes.length < period + 1) return closes.map(() => null);
+
+  const changes = [];
+  for (let i = 1; i < closes.length; i++) {
+    changes.push(closes[i] - closes[i - 1]);
+  }
+
+  let avgGain = 0, avgLoss = 0;
+  for (let i = 0; i < period; i++) {
+    if (changes[i] > 0) avgGain += changes[i];
+    else avgLoss += Math.abs(changes[i]);
+  }
+  avgGain /= period;
+  avgLoss /= period;
+
+  // Pad with nulls for the initial period
+  const rsi = new Array(period).fill(null);
+  rsi.push(parseFloat((100 - 100 / (1 + avgGain / (avgLoss || 0.001))).toFixed(2)));
+
+  for (let i = period; i < changes.length; i++) {
+    const gain = changes[i] > 0 ? changes[i] : 0;
+    const loss = changes[i] < 0 ? Math.abs(changes[i]) : 0;
+    avgGain = (avgGain * (period - 1) + gain) / period;
+    avgLoss = (avgLoss * (period - 1) + loss) / period;
+    rsi.push(parseFloat((100 - 100 / (1 + avgGain / (avgLoss || 0.001))).toFixed(2)));
+  }
+  return rsi;
+}
+
+// ---- MACD calculation ----
+function calcMACD(closes, fast = 12, slow = 26, signal = 9) {
+  const emaFast = calcEMA(closes, fast);
+  const emaSlow = calcEMA(closes, slow);
+
+  const macdLine = emaFast.map((v, i) => parseFloat((v - emaSlow[i]).toFixed(4)));
+  const signalLine = calcEMA(macdLine.slice(slow - 1), signal);
+
+  // Pad signal line to match length
+  const paddedSignal = new Array(slow - 1 + signal - 1).fill(null).concat(signalLine);
+
+  // Histogram
+  const histogram = macdLine.map((v, i) => {
+    if (paddedSignal[i] == null) return null;
+    return parseFloat((v - paddedSignal[i]).toFixed(4));
+  });
+
+  return { macdLine, signalLine: paddedSignal, histogram };
+}
+
 // ---- Timeframe configs ----
 const TIMEFRAMES = [
   { label: '1W', days: 7 },
@@ -73,7 +134,10 @@ export default function InteractiveChart({ stockData, symbol, quote }) {
   const [timeframe, setTimeframe] = useState('3M');
   const [showSMA20, setShowSMA20] = useState(true);
   const [showSMA50, setShowSMA50] = useState(false);
+  const [showRSI, setShowRSI] = useState(true);
+  const [showMACD, setShowMACD] = useState(true);
   const [hoveredData, setHoveredData] = useState(null);
+  const [hoveredIndex, setHoveredIndex] = useState(null);
   const chartRef = useRef(null);
 
   // Filter data by timeframe
@@ -87,6 +151,8 @@ export default function InteractiveChart({ stockData, symbol, quote }) {
   const closes = useMemo(() => filteredData.map(d => d.close), [filteredData]);
   const sma20 = useMemo(() => showSMA20 ? calcSMA(closes, 20) : [], [closes, showSMA20]);
   const sma50 = useMemo(() => showSMA50 ? calcSMA(closes, 50) : [], [closes, showSMA50]);
+  const rsiData = useMemo(() => showRSI ? calcRSI(closes) : [], [closes, showRSI]);
+  const macdData = useMemo(() => showMACD ? calcMACD(closes) : { macdLine: [], signalLine: [], histogram: [] }, [closes, showMACD]);
 
   // Determine up/down colors for volume
   const volumeColors = useMemo(() => {
@@ -227,6 +293,7 @@ export default function InteractiveChart({ stockData, symbol, quote }) {
           const idx = context.tooltip?.dataPoints?.[0]?.dataIndex;
           if (idx != null && filteredData[idx]) {
             setHoveredData(filteredData[idx]);
+            setHoveredIndex(idx);
           }
         }
       }
@@ -247,7 +314,7 @@ export default function InteractiveChart({ stockData, symbol, quote }) {
       }
     },
     onHover: (event, elements, chart) => {
-      if (!elements.length) setHoveredData(null);
+      if (!elements.length) { setHoveredData(null); setHoveredIndex(null); }
     }
   };
 
@@ -376,6 +443,29 @@ export default function InteractiveChart({ stockData, symbol, quote }) {
             }}>
             SMA 50
           </button>
+          <span style={{ width: 1, background: 'var(--border)', margin: '0 2px' }} />
+          <button onClick={() => setShowRSI(!showRSI)}
+            style={{
+              padding: '3px 10px', border: '0.5px solid', borderRadius: 6, cursor: 'pointer',
+              fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-mono)',
+              background: showRSI ? 'rgba(6,182,212,0.12)' : 'transparent',
+              borderColor: showRSI ? '#06b6d4' : 'var(--border)',
+              color: showRSI ? '#06b6d4' : 'var(--text-muted)',
+              transition: 'all 0.15s'
+            }}>
+            RSI
+          </button>
+          <button onClick={() => setShowMACD(!showMACD)}
+            style={{
+              padding: '3px 10px', border: '0.5px solid', borderRadius: 6, cursor: 'pointer',
+              fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-mono)',
+              background: showMACD ? 'rgba(236,72,153,0.12)' : 'transparent',
+              borderColor: showMACD ? '#ec4899' : 'var(--border)',
+              color: showMACD ? '#ec4899' : 'var(--text-muted)',
+              transition: 'all 0.15s'
+            }}>
+            MACD
+          </button>
         </div>
       </div>
 
@@ -389,8 +479,206 @@ export default function InteractiveChart({ stockData, symbol, quote }) {
         <Bar data={volumeChartData} options={volumeChartOptions} />
       </div>
 
+      {/* ---- RSI panel ---- */}
+      {showRSI && rsiData.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+            <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: '#06b6d4', fontWeight: 700 }}>
+              RSI (14)
+              {hoveredIndex != null && rsiData[hoveredIndex] != null && (
+                <span style={{ marginLeft: 8, color: rsiData[hoveredIndex] > 70 ? '#ef4444' : rsiData[hoveredIndex] < 30 ? '#22c55e' : 'var(--text-secondary)' }}>
+                  {rsiData[hoveredIndex].toFixed(1)}
+                </span>
+              )}
+              {hoveredIndex == null && rsiData[rsiData.length - 1] != null && (
+                <span style={{ marginLeft: 8, color: rsiData[rsiData.length - 1] > 70 ? '#ef4444' : rsiData[rsiData.length - 1] < 30 ? '#22c55e' : 'var(--text-secondary)' }}>
+                  {rsiData[rsiData.length - 1].toFixed(1)}
+                </span>
+              )}
+            </span>
+            <div style={{ fontSize: 9, color: 'var(--text-faint)', fontFamily: 'var(--font-mono)' }}>
+              <span style={{ color: '#ef4444' }}>70</span> overbought · <span style={{ color: '#22c55e' }}>30</span> oversold
+            </div>
+          </div>
+          <div style={{ position: 'relative', height: 80 }}>
+            <Line data={{
+              labels: filteredData.map(d => d.date?.slice(5) || ''),
+              datasets: [{
+                data: rsiData,
+                borderColor: '#06b6d4',
+                borderWidth: 1.5,
+                pointRadius: 0,
+                pointHoverRadius: 4,
+                pointHoverBackgroundColor: '#06b6d4',
+                tension: 0.3,
+                fill: false
+              }]
+            }} options={{
+              responsive: true, maintainAspectRatio: false,
+              interaction: { mode: 'index', intersect: false },
+              plugins: {
+                legend: { display: false },
+                tooltip: {
+                  backgroundColor: '#141820', titleColor: '#e2e8f0', bodyColor: '#06b6d4',
+                  borderColor: '#2a3444', borderWidth: 1, padding: 8, cornerRadius: 6,
+                  displayColors: false,
+                  callbacks: {
+                    title: (items) => filteredData[items[0]?.dataIndex]?.date || '',
+                    label: (item) => `RSI: ${item.raw?.toFixed(1)}`
+                  }
+                }
+              },
+              scales: {
+                x: { display: false },
+                y: {
+                  position: 'right', min: 0, max: 100,
+                  ticks: { color: '#64748b', font: { size: 9, family: 'JetBrains Mono' }, stepSize: 30, callback: v => v },
+                  grid: { color: 'rgba(255,255,255,0.03)' }
+                }
+              },
+              // Draw overbought/oversold zones
+            }} plugins={[{
+              id: 'rsiZones',
+              beforeDraw(chart) {
+                const { ctx, chartArea: { left, right, top, bottom }, scales: { y } } = chart;
+                if (!y) return;
+                ctx.save();
+                // Overbought zone (70-100)
+                const y70 = y.getPixelForValue(70);
+                ctx.fillStyle = 'rgba(239, 68, 68, 0.06)';
+                ctx.fillRect(left, top, right - left, y70 - top);
+                // Oversold zone (0-30)
+                const y30 = y.getPixelForValue(30);
+                ctx.fillStyle = 'rgba(34, 197, 94, 0.06)';
+                ctx.fillRect(left, y30, right - left, bottom - y30);
+                // Lines at 70 and 30
+                ctx.setLineDash([4, 4]);
+                ctx.lineWidth = 0.5;
+                ctx.strokeStyle = 'rgba(239, 68, 68, 0.3)';
+                ctx.beginPath(); ctx.moveTo(left, y70); ctx.lineTo(right, y70); ctx.stroke();
+                ctx.strokeStyle = 'rgba(34, 197, 94, 0.3)';
+                ctx.beginPath(); ctx.moveTo(left, y30); ctx.lineTo(right, y30); ctx.stroke();
+                // Midline at 50
+                ctx.strokeStyle = 'rgba(148, 163, 184, 0.15)';
+                const y50 = y.getPixelForValue(50);
+                ctx.beginPath(); ctx.moveTo(left, y50); ctx.lineTo(right, y50); ctx.stroke();
+                ctx.restore();
+              }
+            }]} />
+          </div>
+        </div>
+      )}
+
+      {/* ---- MACD panel ---- */}
+      {showMACD && macdData.macdLine.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+            <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: '#ec4899', fontWeight: 700 }}>
+              MACD (12, 26, 9)
+              {hoveredIndex != null && macdData.macdLine[hoveredIndex] != null && (
+                <span style={{ marginLeft: 8, color: 'var(--text-secondary)' }}>
+                  {macdData.macdLine[hoveredIndex].toFixed(2)}
+                </span>
+              )}
+            </span>
+            <div style={{ fontSize: 9, color: 'var(--text-faint)', fontFamily: 'var(--font-mono)', display: 'flex', gap: 12 }}>
+              <span><span style={{ color: '#ec4899' }}>—</span> MACD</span>
+              <span><span style={{ color: '#f59e0b' }}>—</span> Signal</span>
+              <span>Histogram</span>
+            </div>
+          </div>
+          <div style={{ position: 'relative', height: 90 }}>
+            <Bar data={{
+              labels: filteredData.map(d => d.date?.slice(5) || ''),
+              datasets: [
+                // Histogram bars
+                {
+                  type: 'bar',
+                  data: macdData.histogram,
+                  backgroundColor: macdData.histogram.map(v =>
+                    v == null ? 'transparent' : v >= 0 ? 'rgba(34, 197, 94, 0.4)' : 'rgba(239, 68, 68, 0.4)'
+                  ),
+                  borderRadius: 1,
+                  order: 2
+                },
+                // MACD line
+                {
+                  type: 'line',
+                  data: macdData.macdLine,
+                  borderColor: '#ec4899',
+                  borderWidth: 1.5,
+                  pointRadius: 0,
+                  pointHoverRadius: 3,
+                  tension: 0.3,
+                  fill: false,
+                  order: 1
+                },
+                // Signal line
+                {
+                  type: 'line',
+                  data: macdData.signalLine,
+                  borderColor: '#f59e0b',
+                  borderWidth: 1.2,
+                  borderDash: [4, 3],
+                  pointRadius: 0,
+                  pointHoverRadius: 3,
+                  tension: 0.3,
+                  fill: false,
+                  order: 1
+                }
+              ]
+            }} options={{
+              responsive: true, maintainAspectRatio: false,
+              interaction: { mode: 'index', intersect: false },
+              plugins: {
+                legend: { display: false },
+                tooltip: {
+                  backgroundColor: '#141820', titleColor: '#e2e8f0', bodyColor: '#94a3b8',
+                  borderColor: '#2a3444', borderWidth: 1, padding: 8, cornerRadius: 6,
+                  displayColors: false,
+                  callbacks: {
+                    title: (items) => filteredData[items[0]?.dataIndex]?.date || '',
+                    afterBody: (items) => {
+                      const idx = items[0]?.dataIndex;
+                      if (idx == null) return '';
+                      const lines = [];
+                      if (macdData.macdLine[idx] != null) lines.push(`MACD:   ${macdData.macdLine[idx].toFixed(3)}`);
+                      if (macdData.signalLine[idx] != null) lines.push(`Signal: ${macdData.signalLine[idx].toFixed(3)}`);
+                      if (macdData.histogram[idx] != null) lines.push(`Hist:   ${macdData.histogram[idx].toFixed(3)}`);
+                      return lines;
+                    },
+                    label: () => ''
+                  }
+                }
+              },
+              scales: {
+                x: { display: false },
+                y: {
+                  position: 'right',
+                  ticks: { color: '#64748b', font: { size: 9, family: 'JetBrains Mono' }, callback: v => v.toFixed(1) },
+                  grid: { color: 'rgba(255,255,255,0.03)' }
+                }
+              }
+            }} plugins={[{
+              id: 'macdZeroLine',
+              beforeDraw(chart) {
+                const { ctx, chartArea: { left, right }, scales: { y } } = chart;
+                if (!y) return;
+                const y0 = y.getPixelForValue(0);
+                ctx.save();
+                ctx.setLineDash([4, 4]);
+                ctx.lineWidth = 0.5;
+                ctx.strokeStyle = 'rgba(148, 163, 184, 0.2)';
+                ctx.beginPath(); ctx.moveTo(left, y0); ctx.lineTo(right, y0); ctx.stroke();
+                ctx.restore();
+              }
+            }]} />
+          </div>
+        </div>
+      )}
+
       {/* ---- Legend ---- */}
-      <div style={{ display: 'flex', gap: 16, marginTop: 8, fontSize: 10, color: 'var(--text-muted)' }}>
+      <div style={{ display: 'flex', gap: 16, marginTop: 8, fontSize: 10, color: 'var(--text-muted)', flexWrap: 'wrap' }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <span style={{ width: 12, height: 2, background: dayChange >= 0 ? '#22c55e' : '#ef4444', display: 'inline-block', borderRadius: 1 }} />
           {symbol}
@@ -415,6 +703,18 @@ export default function InteractiveChart({ stockData, symbol, quote }) {
           <span style={{ width: 8, height: 8, background: 'rgba(239,68,68,0.4)', display: 'inline-block', borderRadius: 2 }} />
           Vol down
         </span>
+        {showRSI && (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ width: 12, height: 2, background: '#06b6d4', display: 'inline-block', borderRadius: 1 }} />
+            RSI
+          </span>
+        )}
+        {showMACD && (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ width: 12, height: 2, background: '#ec4899', display: 'inline-block', borderRadius: 1 }} />
+            MACD
+          </span>
+        )}
       </div>
     </div>
   );
