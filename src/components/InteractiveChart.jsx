@@ -4,13 +4,14 @@
 // timeframe selector, volume bars
 // ============================================
 
-import React, { useState, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Line, Bar } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
   CategoryScale, LinearScale, PointElement, LineElement,
   BarElement, Filler, Tooltip, Legend
 } from 'chart.js';
+import { getIntraday } from '../services/stockAPI';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Filler, Tooltip, Legend);
 
@@ -61,6 +62,7 @@ function calcSMA(data, period) {
   return result;
 }
 
+// ---- EMA calculation ----
 function calcEMA(data, period) {
   if (!data || data.length === 0 || data[0] == null) return data.map(() => null);
   const k = 2 / (period + 1);
@@ -71,6 +73,7 @@ function calcEMA(data, period) {
   }
   return ema.map(v => v != null ? parseFloat(v.toFixed(2)) : null);
 }
+
 // ---- RSI calculation ----
 function calcRSI(closes, period = 14) {
   if (closes.length < period + 1) return closes.map(() => null);
@@ -124,9 +127,11 @@ function calcMACD(closes, fast = 12, slow = 26, signal = 9) {
 
 // ---- Timeframe configs ----
 const TIMEFRAMES = [
+  { label: '1D', days: 0 },
   { label: '1W', days: 7 },
   { label: '1M', days: 30 },
   { label: '3M', days: 90 },
+  { label: '6M', days: 180 },
   { label: 'ALL', days: 999 },
 ];
 
@@ -138,15 +143,28 @@ export default function InteractiveChart({ stockData, symbol, quote }) {
   const [showMACD, setShowMACD] = useState(true);
   const [hoveredData, setHoveredData] = useState(null);
   const [hoveredIndex, setHoveredIndex] = useState(null);
+  const [intradayData, setIntradayData] = useState([]);
   const chartRef = useRef(null);
+
+  // Fetch intraday data when 1D is selected
+  useEffect(() => {
+    if (timeframe === '1D' && symbol) {
+      getIntraday(symbol).then(data => {
+        if (data.length > 0) setIntradayData(data);
+      });
+    }
+  }, [timeframe, symbol]);
 
   // Filter data by timeframe
   const filteredData = useMemo(() => {
+    if (timeframe === '1D') {
+      return intradayData.length > 0 ? intradayData : (stockData || []).slice(-1);
+    }
     if (!stockData || stockData.length === 0) return [];
     const tf = TIMEFRAMES.find(t => t.label === timeframe);
     const days = tf?.days || 90;
     return stockData.slice(-Math.min(days, stockData.length));
-  }, [stockData, timeframe]);
+  }, [stockData, timeframe, intradayData]);
 
   const closes = useMemo(() => filteredData.map(d => d.close), [filteredData]);
   const sma20 = useMemo(() => showSMA20 ? calcSMA(closes, 20) : [], [closes, showSMA20]);

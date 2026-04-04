@@ -289,6 +289,57 @@ export async function searchSymbol(query) {
   }
 }
 
+/**
+ * Get intraday data (5min candles) from Yahoo Finance
+ */
+export async function getIntraday(symbol) {
+  const cacheKey = `intraday:${symbol}`;
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
+
+  try {
+    console.log(`[Yahoo] Fetching intraday for ${symbol}...`);
+
+    const url = `${YAHOO_BASE}/${symbol}?interval=5m&range=1d&includePrePost=false`;
+    let data;
+
+    try {
+      const resp = await axios.get(url);
+      data = resp.data;
+    } catch {
+      const resp = await axios.get(`https://corsproxy.io/?${encodeURIComponent(url)}`);
+      data = resp.data;
+    }
+
+    const chart = data?.chart?.result?.[0];
+    if (!chart || !chart.timestamp) return [];
+
+    const timestamps = chart.timestamp;
+    const quote = chart.indicators.quote[0];
+
+    const result = [];
+    for (let i = 0; i < timestamps.length; i++) {
+      if (quote.close[i] == null) continue;
+      const time = new Date(timestamps[i] * 1000);
+      result.push({
+        date: time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+        open: parseFloat((quote.open[i] || 0).toFixed(2)),
+        high: parseFloat((quote.high[i] || 0).toFixed(2)),
+        low: parseFloat((quote.low[i] || 0).toFixed(2)),
+        close: parseFloat((quote.close[i] || 0).toFixed(2)),
+        volume: quote.volume[i] || 0
+      });
+    }
+
+    console.log(`[Yahoo] Got ${result.length} intraday candles for ${symbol}`);
+    setCache(cacheKey, result);
+    return result;
+  } catch (err) {
+    console.error(`[Yahoo] Intraday failed for ${symbol}:`, err.message);
+    return [];
+  }
+}
+
 // ========================================
 // WEBSOCKET — Real-time Finnhub Streaming
 // ========================================
