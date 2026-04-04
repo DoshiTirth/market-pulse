@@ -1,7 +1,5 @@
-// ============================================
 // Agent Memory — Stores analysis history and context
 // Enables the agent to reference past analyses
-// ============================================
 
 export default class AgentMemory {
   constructor() {

@@ -1,8 +1,6 @@
-// ============================================
 // InteractiveChart — Rich stock chart component
 // Crosshair, OHLCV tooltips, SMA overlays,
 // timeframe selector, volume bars
-// ============================================
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Line, Bar } from 'react-chartjs-2';

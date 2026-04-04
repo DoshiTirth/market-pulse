@@ -1,8 +1,6 @@
-// ============================================
 // Market Pulse — AI Chat Service
 // Sends queries to the Express backend
 // which securely proxies them to Claude API
-// ============================================
 
 import axios from 'axios';
 

@@ -1,7 +1,5 @@
-// ============================================
 // Market Pulse — AI Stock Analysis Dashboard
 // Industrial-grade with real data pipeline
-// ============================================
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Line, Doughnut, Bar } from 'react-chartjs-2';

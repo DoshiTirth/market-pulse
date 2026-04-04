@@ -1,8 +1,6 @@
-// ============================================
 // StockSage AI — Agent Core
 // Modular AI agent with pluggable skill system
 // This is the brain of the application
-// ============================================
 
 import TechnicalSkill from './skills/TechnicalSkill';
 import PatternSkill from './skills/PatternSkill';

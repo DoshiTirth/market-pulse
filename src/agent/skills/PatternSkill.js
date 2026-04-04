@@ -1,7 +1,5 @@
-// ============================================
 // Skill: Pattern Recognition
 // Detects common chart patterns in price data
-// ============================================
 
 export default class PatternSkill {
   name = 'pattern';

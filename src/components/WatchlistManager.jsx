@@ -1,8 +1,6 @@
-// ============================================
 // WatchlistManager — Custom watchlist component
 // Search stocks via Finnhub, add/remove tickers,
 // saves to localStorage for persistence
-// ============================================
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Search, Plus, X, Star } from 'lucide-react';

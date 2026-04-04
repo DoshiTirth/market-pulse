@@ -1,8 +1,6 @@
-// ============================================
 // Skill: Sentiment Analysis
 // Infers market sentiment from volume patterns,
 // price momentum, and relative strength
-// ============================================
 
 import { calcRSI, calcOBV } from '../../utils/indicators';
 

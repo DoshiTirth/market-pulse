@@ -1,8 +1,3 @@
-// ============================================
-// StockSage AI — Technical Indicators Library
-// Pure math functions, no side effects
-// ============================================
-
 /**
  * Simple Moving Average
  */

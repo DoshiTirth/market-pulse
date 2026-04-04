@@ -1,6 +1,4 @@
-// ============================================
 // useStockData — React hook for fetching market data
-// ============================================
 
 import { useState, useEffect, useCallback } from 'react';
 import { getQuote, getDaily, getOverview, getBatchQuotes } from '../services/stockAPI';

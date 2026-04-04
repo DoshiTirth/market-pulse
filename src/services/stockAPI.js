@@ -1,8 +1,6 @@
-// ============================================
 // StockSage AI — Market Data Service
 // Finnhub: real-time quotes + WebSocket + news
 // Yahoo Finance: historical candle data (free)
-// ============================================
 
 import axios from 'axios';
 
@@ -28,9 +26,7 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// ========================================
 // FINNHUB — Quotes, News, WebSocket
-// ========================================
 
 /**
  * Get current quote for a symbol (Finnhub)
@@ -159,9 +155,7 @@ export async function getBatchQuotes(symbols) {
   return results;
 }
 
-// ========================================
 // YAHOO FINANCE — Historical Candle Data
-// ========================================
 
 /**
  * Get daily candle data from Yahoo Finance (free, no API key needed)
@@ -340,9 +334,7 @@ export async function getIntraday(symbol) {
   }
 }
 
-// ========================================
 // WEBSOCKET — Real-time Finnhub Streaming
-// ========================================
 
 export class RealtimeStream {
   constructor(onTrade) {

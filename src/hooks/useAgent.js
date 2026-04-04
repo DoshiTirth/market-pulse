@@ -1,6 +1,4 @@
-// ============================================
 // useAgent — React hook for the AI agent
-// ============================================
 
 import { useState, useCallback } from 'react';
 import agent from '../agent/AgentCore';

@@ -1,7 +1,5 @@
-// ============================================
 // Skill: Technical Analysis
 // Analyzes price data using RSI, MACD, SMA, Bollinger Bands, ATR
-// ============================================
 
 import { calcRSI, calcMACD, calcSMA, calcEMA, calcBollingerBands, calcATR } from '../../utils/indicators';
 

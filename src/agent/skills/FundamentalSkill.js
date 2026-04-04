@@ -1,7 +1,5 @@
-// ============================================
 // Skill: Fundamental Analysis
 // Evaluates company fundamentals (P/E, margins, growth)
-// ============================================
 
 export default class FundamentalSkill {
   name = 'fundamental';
